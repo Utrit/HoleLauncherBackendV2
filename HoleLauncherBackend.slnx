@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HoleLauncherBackend.Api/HoleLauncherBackend.Api.csproj" />
+    <Project Path="src/HoleLauncherBackend.Contracts/HoleLauncherBackend.Contracts.csproj" />
+    <Project Path="src/HoleLauncherBackend.DraslWorker/HoleLauncherBackend.DraslWorker.csproj" />
+    <Project Path="src/HoleLauncherBackend.Orchestrator/HoleLauncherBackend.Orchestrator.csproj" />
+  </Folder>
+</Solution>
