@@ -1,0 +1,21 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="HoleLauncher.Admin.App"
+             RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <FontFamily x:Key="SnProMedium">avares://HoleLauncher.Admin/Assets/Fonts/SNPro-Medium.ttf#SN Pro Medium</FontFamily>
+    <FontFamily x:Key="SnProSemiBold">avares://HoleLauncher.Admin/Assets/Fonts/SNPro-SemiBold.ttf#SN Pro SemiBold</FontFamily>
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="TextBlock">
+      <Setter Property="FontFamily" Value="{StaticResource SnProMedium}" />
+    </Style>
+    <Style Selector="TextBox">
+      <Setter Property="FontFamily" Value="{StaticResource SnProMedium}" />
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="FontFamily" Value="{StaticResource SnProMedium}" />
+    </Style>
+  </Application.Styles>
+</Application>

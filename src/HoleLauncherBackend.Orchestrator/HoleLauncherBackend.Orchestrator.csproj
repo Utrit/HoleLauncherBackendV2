@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
   <ItemGroup>
+    <ProjectReference Include="../HoleLauncherBackend.Shared/HoleLauncherBackend.Shared.csproj" />
     <ProjectReference Include="..\HoleLauncherBackend.Contracts\HoleLauncherBackend.Contracts.csproj" />
+    <ProjectReference Include="..\HoleLauncherBackend.Messaging\HoleLauncherBackend.Messaging.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Confluent.Kafka" Version="2.16.0" />

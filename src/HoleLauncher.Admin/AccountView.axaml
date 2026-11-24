@@ -1,0 +1,68 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="using:Avalonia.Data.Converters"
+             xmlns:local="using:HoleLauncher.Admin"
+             x:Class="HoleLauncher.Admin.AccountView"
+             Background="#10141C">
+  <ScrollViewer>
+    <StackPanel MaxWidth="440" Margin="24,60,24,32" Spacing="24">
+      <TextBlock Text="HoleLauncher Admin" FontSize="28" FontFamily="{StaticResource SnProSemiBold}" />
+      <Border Padding="24" Background="#1A2230" CornerRadius="12">
+        <StackPanel Spacing="12">
+          <StackPanel x:Name="CredentialsPanel" Spacing="10" IsEnabled="False">
+            <TextBlock Text="Имя пользователя" />
+            <TextBox x:Name="UserNameInput" />
+            <TextBlock Text="Пароль" />
+            <local:PasswordField x:Name="PasswordInput" />
+            <WrapPanel Orientation="Horizontal">
+              <Button Content="Войти" Classes="accent" Click="OnLogin" Margin="0,0,10,0" />
+              <Button Content="Зарегистрироваться" Click="OnRegister" />
+            </WrapPanel>
+          </StackPanel>
+          <TextBlock x:Name="StatusText" IsVisible="{CompiledBinding #StatusText.Text, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" Text="Проверяем сессию…" TextWrapping="Wrap" />
+          <StackPanel x:Name="PermissionsPanel" IsVisible="False" Spacing="4">
+            <TextBlock Text="Права" FontSize="16" />
+            <TextBlock x:Name="PermissionsText" TextWrapping="Wrap" />
+          </StackPanel>
+          <Button x:Name="LogoutButton" Content="Выйти" Click="OnLogout" IsVisible="False" />
+        </StackPanel>
+      </Border>
+      <Border x:Name="PasswordPanel" IsVisible="False" Padding="24" Background="#1A2230" CornerRadius="12">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Сменить пароль" FontSize="16" />
+          <local:PasswordField x:Name="NewPasswordInput" Watermark="Новый пароль" />
+          <Button x:Name="ChangePasswordButton" Content="Сменить пароль" Click="OnChangePassword" />
+          <TextBlock x:Name="PasswordMessage" TextWrapping="Wrap"
+                     IsVisible="{CompiledBinding #PasswordMessage.Text, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+      </Border>
+      <Border x:Name="UserManagementPanel" IsVisible="False" Padding="24" Background="#1A2230" CornerRadius="12">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Права пользователей" FontSize="16" />
+          <ComboBox x:Name="UserPicker" PlaceholderText="Выберите аккаунт"
+                    HorizontalAlignment="Stretch" SelectionChanged="OnUserSelected" />
+          <StackPanel x:Name="UserFlagsPanel" IsVisible="False" Spacing="4">
+            <StackPanel x:Name="PermissionFlags" Spacing="4" />
+            <WrapPanel Orientation="Horizontal">
+              <Button x:Name="SavePermissionsButton" Content="Сохранить" Click="OnSavePermissions" Margin="0,0,8,0" />
+              <Button x:Name="ToggleSuppressionButton" Click="OnToggleSuppression" />
+            </WrapPanel>
+          </StackPanel>
+          <TextBlock x:Name="UserManagementMessage" TextWrapping="Wrap"
+                     IsVisible="{CompiledBinding #UserManagementMessage.Text, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+      </Border>
+      <Border x:Name="ServicesPanel" IsVisible="False" Padding="24" Background="#1A2230" CornerRadius="12">
+        <StackPanel Spacing="12">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBlock Text="Статус сервисов" FontSize="16" VerticalAlignment="Center" />
+            <Button x:Name="RefreshStatusButton" Grid.Column="1" Content="Обновить" Click="OnRefreshStatus" />
+          </Grid>
+          <TextBlock x:Name="ServicesMessage" TextWrapping="Wrap"
+                     IsVisible="{CompiledBinding #ServicesMessage.Text, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+          <StackPanel x:Name="ServiceRows" Spacing="8" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

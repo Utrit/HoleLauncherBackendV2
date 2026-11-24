@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HoleLauncher Admin</title>
+  <style>
+    html, body, #admin { width: 100%; height: 100%; margin: 0; background: #10141c; }
+    #startup {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      display: grid;
+      place-items: center;
+      background: #10141c;
+      color: #eef2fa;
+      font: 16px system-ui;
+    }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #343d4d;
+      border-top-color: #eef2fa;
+      border-radius: 50%;
+      animation: spin 800ms linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  </style>
+</head>
+<body>
+  <div id="admin"></div>
+  <div id="startup" role="status" aria-label="Загрузка">
+    <div class="spinner" aria-hidden="true"></div>
+  </div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
