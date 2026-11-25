@@ -277,5 +277,14 @@
   "repository.folder_remove": "Удалить папку",
   "repository.folder_destination": "Папка назначения",
   "repository.folder_not_empty": "Перед удалением переместите файлы из папки.",
+  "launcher.title": "Лаунчер",
+  "launcher.repository": "https://github.com/owner/repository",
+  "launcher.import": "Импортировать последний релиз",
+  "launcher.invalid": "Вставьте ссылку на репозиторий GitHub.",
+  "launcher.failed": "Не удалось импортировать релиз. Проверьте, что в нём доступны оба файла лаунчера.",
+  "launcher.empty": "Релиз лаунчера ещё не импортирован.",
+  "launcher.ready": "Релиз {0} доступен для скачивания.",
+  "launcher.windows": "Скачать для Windows",
+  "launcher.linux": "Скачать для Linux",
   "repository.modrinth": "Modrinth"
 }

@@ -43,6 +43,8 @@ public sealed partial class AccountView
         ServicesPanel.IsVisible = activeSection == ServerNav;
         UserManagementPanel.IsVisible = activeSection == UsersNav;
         RepositoryPanel.IsVisible = activeSection == RepositoryNav;
+        LauncherPanel.IsVisible = activeSection == LauncherNav;
+        LauncherNav.Classes.Set("selected", activeSection == LauncherNav);
         OfferPanel.IsVisible = activeSection == OfferNav;
         OfferNav.Classes.Set("selected", activeSection == OfferNav);
         RepositoryNav.Classes.Set("selected", activeSection == RepositoryNav);

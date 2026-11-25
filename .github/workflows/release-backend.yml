@@ -48,7 +48,7 @@ jobs:
       - name: Build Docker images
         run: |
           image_prefix="ghcr.io/${GITHUB_REPOSITORY,,}/back"
-          for service in api access orchestrator storage repository; do
+          for service in api access orchestrator storage repository launcher; do
             docker build --target "$service" \
               --tag "$image_prefix.$service:$RELEASE_TAG" \
               --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
@@ -62,7 +62,7 @@ jobs:
         run: |
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           image_prefix="ghcr.io/${GITHUB_REPOSITORY,,}/back"
-          services=(api access orchestrator storage repository)
+          services=(api access orchestrator storage repository launcher)
           for service in "${services[@]}"; do
             docker push "$image_prefix.$service:$RELEASE_TAG"
           done

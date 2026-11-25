@@ -28,6 +28,7 @@
             <Button x:Name="StorageNav" Classes="navigation" Content="{local:Loc nav.storage}" Click="OnStorageNav" IsVisible="False" />
             <Button x:Name="OfferNav" Classes="navigation" Content="{local:Loc nav.offer}" Click="OnOfferNav" IsVisible="False" />
             <Button x:Name="RepositoryNav" Classes="navigation" Content="{local:Loc nav.repository}" Click="OnRepositoryNav" IsVisible="False" />
+            <Button x:Name="LauncherNav" Classes="navigation" Content="{local:Loc launcher.title}" Click="OnLauncherNav" IsVisible="False" />
             <Button x:Name="LogoutButton" Classes="navigation" Content="{local:Loc nav.logout}" Click="OnLogout" />
           </WrapPanel>
         </StackPanel>
@@ -248,6 +249,17 @@
             <Button Content="{local:Loc offer.submit}" Click="OnSubmitOffer" />
             <TextBlock x:Name="OfferMessage" TextWrapping="Wrap" />
           </StackPanel>
+          <StackPanel x:Name="LauncherPanel" IsVisible="False" Spacing="10">
+            <TextBlock Text="{local:Loc launcher.title}" FontSize="22" />
+            <TextBox x:Name="LauncherRepository" Watermark="{local:Loc launcher.repository}" />
+            <Button Content="{local:Loc launcher.import}" Click="OnImportLauncher" />
+            <TextBlock x:Name="LauncherMessage" TextWrapping="Wrap" />
+            <WrapPanel x:Name="LauncherDownloads" IsVisible="False">
+              <HyperlinkButton x:Name="LauncherWindowsDownload" Content="{local:Loc launcher.windows}" Margin="0,0,8,0" />
+              <HyperlinkButton x:Name="LauncherLinuxDownload" Content="{local:Loc launcher.linux}" />
+            </WrapPanel>
+          </StackPanel>
+
           <StackPanel x:Name="StoragePanel" IsVisible="False" Spacing="16">
             <Border x:Name="StorageFilesPanel" Padding="20" Background="#1A2230" CornerRadius="12">
               <StackPanel Spacing="12">

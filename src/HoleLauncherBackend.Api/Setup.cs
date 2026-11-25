@@ -50,6 +50,11 @@ internal static class Setup
         });
         builder.Services.AddHttpClient("repository", client =>
             client.BaseAddress = new Uri(builder.Configuration["Repository:Url"]!));
+        builder.Services.AddHttpClient("launcher", client =>
+        {
+            client.BaseAddress = new Uri(builder.Configuration["Launcher:Url"] ?? "http://launcher:8080/");
+            client.Timeout = TimeSpan.FromMinutes(6);
+        });
         builder.Services.AddHttpClient("storage", client =>
         {
             client.BaseAddress = new Uri(builder.Configuration["Storage:Url"]!);
@@ -77,6 +82,7 @@ internal static class Setup
             container.RegisterType<DraslProxyEndpoint>().SingleInstance();
             container.RegisterType<RegisterEndpoint>().As<IAccountEndpoint>().SingleInstance();
             container.RegisterType<LoginEndpoint>().As<IAccountEndpoint>().SingleInstance();
+            container.RegisterType<LauncherEndpoint>().AsSelf().As<IAccountEndpoint>().SingleInstance();
             container.RegisterType<RepositoryEndpoint>().As<IAccountEndpoint>().SingleInstance();
             container.RegisterType<StorageAdminEndpoint>().As<IAccountEndpoint>().SingleInstance();
             container.RegisterType<GameProfileEndpoint>().As<IAccountEndpoint>().SingleInstance();

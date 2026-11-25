@@ -4,6 +4,7 @@ public sealed record ServiceStatus(string Name, string State, long? UsedBytes = 
 
 public static class Permissions
 {
+    public const string EditLauncher = "system.launcher.edit";
     public const string EditUsers = "system.user.edit";
     public const string ReadSystemStatus = "system.status.read";
     public const string StorageUpload = "storage.upload";
@@ -20,6 +21,6 @@ public static class Permissions
     public const string EditGameCape = "game.user.cape";
 
     public static IReadOnlyList<string> All { get; } =
-        [EditUsers, ReadSystemStatus, StorageUpload, StorageDownload, StorageDelete, StorageUserDataUpload,
+        [EditUsers, EditLauncher, ReadSystemStatus, StorageUpload, StorageDownload, StorageDelete, StorageUserDataUpload,
             EditGameUser, EditGameSkin, EditGameCape, StorageEdit, DatabaseEdit, RepositoryEdit, RepositoryOffer];
 }

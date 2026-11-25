@@ -13,6 +13,7 @@ services:
       Drasl__CredentialKey: ${DRASL_CREDENTIAL_KEY:-}
       Auth__AccountsUrl: http://access:8080/
       Repository__Url: http://repository:8080/
+      Launcher__Url: http://launcher:8080/
       Storage__Url: http://storage:8080/
       Storage__MinUploadBytesPerSecond: ${STORAGE_MIN_UPLOAD_BYTES_PER_SECOND:-500000}
       Auth__SessionKey: ${SESSION_KEY:?Set SESSION_KEY in .env}
@@ -51,6 +52,7 @@ services:
       Kafka__Username: orchestrator
       Kafka__Password: ${KAFKA_ORCHESTRATOR_PASSWORD:?Set KAFKA_ORCHESTRATOR_PASSWORD in .env}
       ConnectionStrings__Orchestrator: Host=accounts-db;Database=orchestrator;Username=accounts
+      Launcher__Url: http://launcher:8080/
       Storage__Url: http://storage:8080/
       Repository__Url: http://repository:8080/
       Orchestrator__Password: ${ACCOUNTS_DB_PASSWORD:?Set ACCOUNTS_DB_PASSWORD in .env}
@@ -107,6 +109,7 @@ services:
     image: ${REPOSITORY_IMAGE:-holelauncherbackend-repository:local}
     environment:
       Repository__Root: /data/repository
+      Launcher__Url: http://launcher:8080/
       Storage__Url: http://storage:8080/
     volumes:
       - repository-data:/data/repository
@@ -114,6 +117,16 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
+
+  launcher:
+    restart: unless-stopped
+    image: ${LAUNCHER_IMAGE:-holelauncherbackend-launcher:local}
+    environment:
+      Launcher__Root: /data/launcher
+      Launcher__GitHubToken: ${LAUNCHER_GITHUB_TOKEN:-}
+      Launcher__PublicOrigin: ${PUBLIC_BASE_URL:-http://localhost:${ADMIN_PORT:-8080}}
+    volumes:
+      - launcher-data:/data/launcher
 
   drasl:
     profiles: [drasl]
@@ -214,5 +227,6 @@ volumes:
   drasl-data:
   repository-data:
   storage-data:
+  launcher-data:
   accounts-data:
   kafka-data:

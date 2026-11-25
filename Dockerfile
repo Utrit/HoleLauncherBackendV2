@@ -29,3 +29,10 @@ COPY repository/ ./
 RUN install -d -o "$APP_UID" /data/repository
 USER $APP_UID
 ENTRYPOINT ["dotnet", "HoleLauncherBackend.Repository.dll"]
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS launcher
+WORKDIR /app
+COPY launcher/ ./
+RUN install -d -o "$APP_UID" /data/launcher
+USER $APP_UID
+ENTRYPOINT ["dotnet", "HoleLauncherBackend.Launcher.dll"]

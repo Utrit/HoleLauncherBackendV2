@@ -35,6 +35,9 @@ try {
         dotnet publish src/HoleLauncherBackend.Repository/HoleLauncherBackend.Repository.csproj -c Release -r $runtime --self-contained false -o "$staging/repository"
         if ($LASTEXITCODE -ne 0) { throw 'Repository Service publish failed.' }
 
+        dotnet publish src/HoleLauncherBackend.Launcher/HoleLauncherBackend.Launcher.csproj -c Release -r $runtime --self-contained false -o "$staging/launcher"
+        if ($LASTEXITCODE -ne 0) { throw 'Launcher Service publish failed.' }
+
         dotnet publish src/HoleLauncher.Admin/HoleLauncher.Admin.csproj -c Release -o "$staging/admin"
         if ($LASTEXITCODE -ne 0) { throw 'Avalonia publish failed.' }
 
@@ -62,7 +65,7 @@ try {
         }
         if ($ArtifactDirectory) { return }
 
-        foreach ($service in @('api','access','orchestrator','storage','repository')) {
+        foreach ($service in @('api','access','orchestrator','storage','repository','launcher')) {
             docker build --file Dockerfile --target $service --tag "holelauncherbackend-${service}:local" $staging
             if ($LASTEXITCODE -ne 0) { throw "Packaging $service failed." }
         }

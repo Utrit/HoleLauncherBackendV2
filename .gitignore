@@ -486,3 +486,5 @@ $RECYCLE.BIN/
 .env.*
 
 /artifacts/
+
+compose.watchtower.yaml

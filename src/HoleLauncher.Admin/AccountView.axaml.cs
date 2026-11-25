@@ -77,6 +77,7 @@ public sealed partial class AccountView : UserControl
         PasswordPanel.IsVisible = account is not null;
         ShowGameProfile(account);
         UsersNav.IsVisible = permissions.Contains(Permissions.EditUsers);
+        LauncherNav.IsVisible = permissions.Contains(Permissions.EditLauncher);
         RepositoryNav.IsVisible = permissions.Contains(Permissions.RepositoryEdit);
         OfferNav.IsVisible = permissions.Contains(Permissions.RepositoryOffer);
         if (changingAccount)
@@ -374,6 +375,8 @@ public sealed partial class AccountView : UserControl
 [JsonSerializable(typeof(AdminAccountName[]))]
 [JsonSerializable(typeof(HistoryCleanupRequest))]
 [JsonSerializable(typeof(HistoryCleanupResult))]
+[JsonSerializable(typeof(LauncherSource))]
+[JsonSerializable(typeof(LauncherRelease))]
 [JsonSerializable(typeof(RepositoryDraft))]
 [JsonSerializable(typeof(RepositoryBuildError))]
 [JsonSerializable(typeof(OfferDraft))]

@@ -16,6 +16,7 @@ internal sealed class ServiceStatusProbes(IConfiguration configuration, NpgsqlDa
         DatabaseAsync("Orchestrator PostgreSQL", operations, cancellation),
         DatabaseAsync("Game Profiles PostgreSQL", profiles, cancellation),
         ProbeAsync("Storage", "Storage:Url", "health/status", storage: true, cancellation),
+        ProbeAsync("Launcher", "Launcher:Url", "health", storage: false, cancellation),
         ProbeAsync("Repository", "Repository:Url", "health", storage: false, cancellation),
         drasl.GetStatusAsync(cancellation));
 

@@ -277,5 +277,14 @@
   "repository.folder_remove": "Delete folder",
   "repository.folder_destination": "Destination folder",
   "repository.folder_not_empty": "Move files out before deleting this folder.",
+  "launcher.title": "Launcher",
+  "launcher.repository": "https://github.com/owner/repository",
+  "launcher.import": "Import latest release",
+  "launcher.invalid": "Paste a link to a GitHub repository.",
+  "launcher.failed": "Could not import the launcher release. Check that both release assets are available.",
+  "launcher.empty": "No launcher release has been imported.",
+  "launcher.ready": "Release {0} is available.",
+  "launcher.windows": "Download Windows launcher",
+  "launcher.linux": "Download Linux launcher",
   "repository.modrinth": "Modrinth"
 }

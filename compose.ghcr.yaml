@@ -1,4 +1,6 @@
 services:
+  launcher:
+    image: ghcr.io/utrit/holelauncherbackendv2/back.launcher:${BACKEND_IMAGE_TAG:-latest}
   api:
     image: ghcr.io/utrit/holelauncherbackendv2/back.api:${BACKEND_IMAGE_TAG:-latest}
   access:
