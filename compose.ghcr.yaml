@@ -1,0 +1,12 @@
+services:
+  api:
+    image: ghcr.io/utrit/holelauncherbackendv2/back.api:${BACKEND_IMAGE_TAG:-latest}
+  access:
+    image: ghcr.io/utrit/holelauncherbackendv2/back.access:${BACKEND_IMAGE_TAG:-latest}
+  orchestrator:
+    image: ghcr.io/utrit/holelauncherbackendv2/back.orchestrator:${BACKEND_IMAGE_TAG:-latest}
+  storage:
+    image: ghcr.io/utrit/holelauncherbackendv2/back.storage:${BACKEND_IMAGE_TAG:-latest}
+  repository:
+    image: ghcr.io/utrit/holelauncherbackendv2/back.repository:${BACKEND_IMAGE_TAG:-latest}
+

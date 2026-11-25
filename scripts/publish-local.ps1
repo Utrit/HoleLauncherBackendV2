@@ -1,3 +1,5 @@
+param([string]$ArtifactDirectory)
+
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location -LiteralPath $projectRoot
@@ -11,7 +13,11 @@ try {
     }
 
     $output = Join-Path $projectRoot 'artifacts/local'
-    $staging = Join-Path $output ([Guid]::NewGuid().ToString('N'))
+    $staging = if ($ArtifactDirectory) {
+        [IO.Path]::GetFullPath($ArtifactDirectory, $projectRoot)
+    } else {
+        Join-Path $output ([Guid]::NewGuid().ToString('N'))
+    }
     New-Item -ItemType Directory -Path $staging | Out-Null
     try {
         dotnet publish src/HoleLauncherBackend.Api/HoleLauncherBackend.Api.csproj -c Release -r $runtime --self-contained false -o "$staging/api"
@@ -42,7 +48,9 @@ try {
         Invoke-WebRequest "$samples/resource_pack/models/mobs.json" -OutFile "$models/mobs.json"
         Invoke-WebRequest "$samples/LICENSE.md" -OutFile "$models/LICENSE.md"
 
-        $version = (Get-FileHash "$wwwroot/_framework/dotnet.js" -Algorithm SHA256).Hash.Substring(0,12).ToLowerInvariant()
+        $assembly = Get-ChildItem "$wwwroot/_framework" -File -Filter 'HoleLauncher.Admin*.wasm' | Select-Object -First 1
+        if (!$assembly) { throw 'Admin WASM artifact missing.' }
+        $version = (Get-FileHash $assembly.FullName -Algorithm SHA256).Hash.Substring(0,12).ToLowerInvariant()
         foreach ($entry in @{
             'index.html' = './main.js'
             'main.js' = './_framework/dotnet.js'
@@ -52,17 +60,21 @@ try {
             $updated = $source.Replace($entry.Value + [char]34, "$($entry.Value)?v=$version" + [char]34)
             [IO.File]::WriteAllText($file, $updated)
         }
+        if ($ArtifactDirectory) { return }
+
         foreach ($service in @('api','access','orchestrator','storage','repository')) {
             docker build --file Dockerfile --target $service --tag "holelauncherbackend-${service}:local" $staging
             if ($LASTEXITCODE -ne 0) { throw "Packaging $service failed." }
         }
     } finally {
-        $resolved = (Resolve-Path -LiteralPath $staging).Path
-        $resolvedOutput = (Resolve-Path -LiteralPath $output).Path
-        if ((Split-Path -Parent $resolved) -ne $resolvedOutput -or (Split-Path -Leaf $resolved) -notmatch '^[a-f0-9]{32}$') {
-            throw "Unexpected staging path: $resolved"
+        if (!$ArtifactDirectory) {
+            $resolved = (Resolve-Path -LiteralPath $staging).Path
+            $resolvedOutput = (Resolve-Path -LiteralPath $output).Path
+            if ((Split-Path -Parent $resolved) -ne $resolvedOutput -or (Split-Path -Leaf $resolved) -notmatch '^[a-f0-9]{32}$') {
+                throw "Unexpected staging path: $resolved"
+            }
+            Remove-Item -LiteralPath $resolved -Recurse -Force
         }
-        Remove-Item -LiteralPath $resolved -Recurse -Force
     }
 } finally {
     Pop-Location
