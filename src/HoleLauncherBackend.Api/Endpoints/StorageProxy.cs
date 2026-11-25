@@ -9,9 +9,10 @@ using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
 namespace HoleLauncherBackend.Api.Endpoints;
 
 internal sealed class StorageProxy(AccountManagementProxy accounts, IHttpClientFactory clients, KafkaBus bus,
-    IConfiguration configuration, ILogger<StorageProxy> logger)
+    IConfiguration configuration, ILogger<StorageProxy> logger, StorageAdministration administration)
 {
-    public async Task<IResult> UploadAsync(string domain, HttpContext context)
+    public async Task<IResult> UploadAsync(string domain, HttpContext context, MemoryStream? preparedBody = null,
+        AccessOperation operationType = AccessOperation.StartStorageUpload)
     {
         var request = context.Request;
         if (!StorageAddress.IsPublicDomain(domain))
@@ -20,15 +21,15 @@ internal sealed class StorageProxy(AccountManagementProxy accounts, IHttpClientF
             return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
 
         var bodyLimit = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
-        if (bodyLimit is { IsReadOnly: false })
+        if (preparedBody is null && bodyLimit is { IsReadOnly: false })
             bodyLimit.MaxRequestBodySize = StorageAddress.MaxUploadBytes;
 
-        var actor = await accounts.SendAsync(context, AccessOperation.StartStorageUpload, context.RequestAborted,
+        var actor = await accounts.SendAsync(context, operationType, context.RequestAborted,
             storageDomain: domain);
         if (actor.Outcome != AccessOutcome.Accepted || actor.Operation is not { } operation || actor.ActorId is not { } uploader)
             return AccountManagementProxy.Result(actor);
 
-        if (request.HttpContext.Features.Get<IHttpMinRequestBodyDataRateFeature>() is { } dataRate)
+        if (preparedBody is null && request.HttpContext.Features.Get<IHttpMinRequestBodyDataRateFeature>() is { } dataRate)
             dataRate.MinDataRate = new MinDataRate(
                 Math.Max(1, configuration.GetValue("Storage:MinUploadBytesPerSecond", 500_000)),
                 TimeSpan.FromSeconds(30));
@@ -43,10 +44,12 @@ internal sealed class StorageProxy(AccountManagementProxy accounts, IHttpClientF
         {
             using var upload = new HttpRequestMessage(HttpMethod.Put, $"staging/{storageDomain}/{id:D}")
             {
-                Content = new StreamContent(request.Body)
+                Content = new StreamContent(preparedBody ?? request.Body)
             };
-            upload.Content.Headers.ContentLength = request.ContentLength;
+            upload.Content.Headers.ContentLength = preparedBody?.Length ?? request.ContentLength;
             upload.Headers.Add("X-Uploader-Id", uploader.ToString("D"));
+            if (request.Headers.TryGetValue("X-Storage-File-Name", out var fileName))
+                upload.Headers.TryAddWithoutValidation("X-Storage-File-Name", fileName.ToArray());
             using var response = await clients.CreateClient("storage")
                 .SendAsync(upload, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
             status = response.StatusCode;
@@ -90,7 +93,7 @@ internal sealed class StorageProxy(AccountManagementProxy accounts, IHttpClientF
     }
 
     public async Task ForwardAsync(string domain, string fileId, HttpMethod method, string permission, HttpContext context,
-        bool metadata = false)
+        string? metadataResource = null)
     {
         if (!StorageAddress.IsPublicDomain(domain) || !StorageAddress.TryParseFileId(fileId, out var id))
         {
@@ -113,8 +116,14 @@ internal sealed class StorageProxy(AccountManagementProxy accounts, IHttpClientF
 
         context.Response.Headers.CacheControl = "no-store";
         var storageDomain = StorageAddress.ResolveDomain(domain, account.AccountId);
-        using var request = new HttpRequestMessage(method, $"files/{storageDomain}/{id:D}" + (metadata ? "/metadata" : ""));
-        if (!metadata && method == HttpMethod.Get && context.Request.Headers.TryGetValue("Range", out var range))
+        if (method == HttpMethod.Delete)
+        {
+            try { context.Response.StatusCode = (int)await administration.DeleteAsync(storageDomain, id, cancellation); }
+            catch (HttpRequestException) { context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable; }
+            return;
+        }
+        using var request = new HttpRequestMessage(method, $"files/{storageDomain}/{id:D}" + (metadataResource is null ? "" : $"/{metadataResource}"));
+        if (metadataResource is null && method == HttpMethod.Get && context.Request.Headers.TryGetValue("Range", out var range))
             request.Headers.TryAddWithoutValidation("Range", range.ToArray());
 
         try
@@ -134,7 +143,7 @@ internal sealed class StorageProxy(AccountManagementProxy accounts, IHttpClientF
             context.Response.ContentLength = response.Content.Headers.ContentLength;
             context.Response.Headers.ContentDisposition = response.Content.Headers.ContentDisposition?.ToString();
             context.Response.Headers.ContentRange = response.Content.Headers.ContentRange?.ToString();
-            if (!metadata)
+            if (metadataResource is null)
                 context.Response.Headers.AcceptRanges = "bytes";
 
             await response.Content.CopyToAsync(context.Response.Body, cancellation);

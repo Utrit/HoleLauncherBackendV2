@@ -1,0 +1,10 @@
+Domain = "localhost"
+BaseURL = "http://localhost:8080/drasl"
+DefaultAdmins = ["hladmin"]
+AllowPasswordLogin = true
+AllowChangingPlayerName = false
+
+[RegistrationUsernamePassword.CreateNewPlayer]
+Allow = true
+AllowChoosingUUID = false
+RequireInvite = true

@@ -28,6 +28,29 @@ internal sealed class DBUtils(NpgsqlDataSource database)
         await command.ExecuteNonQueryAsync(cancellation);
     }
 
+    public async Task InsertGameOperationAsync(Guid id, Guid actorId, CancellationToken cancellation)
+    {
+        await using var command = Create("""
+            INSERT INTO operations (id, actor_id, state) VALUES ($1, $2, $3)
+            ON CONFLICT (id) DO NOTHING
+            """, id, actorId, (int)OperationState.Pending);
+        await command.ExecuteNonQueryAsync(cancellation);
+    }
+
+    public async Task FinishGameOperationAsync(Guid id, Guid actorId, AccessOutcome outcome, string error,
+        CancellationToken cancellation)
+    {
+        var state = outcome == AccessOutcome.NoContent ? OperationState.Done : OperationState.Failed;
+        await using var command = Create("""
+            INSERT INTO operations (id, actor_id, state, outcome, error_message, finished_at)
+            VALUES ($1, $2, $3, $4, NULLIF($5, ''), now())
+            ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, outcome = EXCLUDED.outcome,
+                error_message = EXCLUDED.error_message, finished_at = EXCLUDED.finished_at
+            WHERE operations.actor_id = EXCLUDED.actor_id AND operations.state = $6
+            """, id, actorId, (int)state, (int)outcome, error, (int)OperationState.Pending);
+        await command.ExecuteNonQueryAsync(cancellation);
+    }
+
     public async Task FinishOperationAsync(Guid id, OperationState state, AccessOutcome outcome,
         CancellationToken cancellation)
     {
@@ -81,7 +104,7 @@ internal sealed class DBUtils(NpgsqlDataSource database)
             WHERE id = $1 AND storage_domain IS NOT NULL AND state IN ($4, $2)
             RETURNING storage_domain, expires_at
             """, id, (int)OperationState.Reverting, reason, (int)OperationState.Pending, (int)failure,
-            "Timeout: Storage не подтвердил завершение шага в срок.", (int)AccessOutcome.Timeout);
+            "error.storage_timeout", (int)AccessOutcome.Timeout);
         await using var reader = await command.ExecuteReaderAsync(cancellation);
         return await reader.ReadAsync(cancellation)
             ? (reader.GetString(0), reader.GetFieldValue<DateTimeOffset>(1))

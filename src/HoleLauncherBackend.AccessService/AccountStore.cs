@@ -38,7 +38,10 @@ internal sealed class AccountStore(DBUtils database, SessionLookup lookup)
 
     public async Task<AccountIdentity?> RegisterAsync(Credentials credentials, CancellationToken cancellation)
     {
-        var account = new AccountIdentity(Guid.NewGuid(), credentials.UserName!, [Permissions.StorageDownload, Permissions.StorageUserDataUpload]);
+        var account = new AccountIdentity(Guid.NewGuid(), credentials.UserName!, [
+            Permissions.StorageDownload, Permissions.StorageUserDataUpload, Permissions.RepositoryOffer,
+            Permissions.EditGameUser, Permissions.EditGameSkin, Permissions.EditGameCape
+        ]);
         var (hash, salt) = CreatePasswordHash(credentials.Password!);
         return await database.InsertAccountAsync(account, hash, salt, Iterations, cancellation) ? account : null;
     }

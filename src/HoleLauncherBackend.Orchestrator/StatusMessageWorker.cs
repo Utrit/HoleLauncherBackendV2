@@ -1,9 +1,10 @@
 using HoleLauncherBackend.Contracts;
 using HoleLauncherBackend.Messaging;
+using HoleLauncherBackend.Shared;
 
 namespace HoleLauncherBackend.Orchestrator;
 
-internal sealed class StatusMessageWorker(KafkaBus bus, OperationHandler operations, StorageUploadHandler uploads) : BackgroundService
+internal sealed class StatusMessageWorker(KafkaBus bus, OperationHandler operations, StorageUploadHandler uploads, ServiceStatusProbes probes) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -27,17 +28,17 @@ internal sealed class StatusMessageWorker(KafkaBus bus, OperationHandler operati
         CancellationToken cancellation) where T : class =>
         KafkaBus.Read<T>(payload) is { } message ? handler(message, cancellation) : Task.CompletedTask;
 
-    private Task ReplyWithStatusAsync(string? payload, CancellationToken cancellation)
+    private async Task ReplyWithStatusAsync(string? payload, CancellationToken cancellation)
     {
         if (KafkaBus.Read<GetSystemStatusRequest>(payload) is not { User.Permissions: not null } request ||
             request.ExpiresAt <= DateTimeOffset.UtcNow)
-            return Task.CompletedTask;
+            return;
 
         var reply = request.User.Permissions.Contains(Permissions.ReadSystemStatus)
             ? new AccessReply(request.CorrelationId, AccessOutcome.Ok, Services:
                 [new("Access Service", "Online"), new("Accounts PostgreSQL", "Online"),
-                 new("Init", "Schema ready"), new("Kafka", "Online"), new("Orchestrator", "Online")])
+                 new("Init", "Schema ready"), new("Kafka", "Online"), new("Orchestrator", "Online"), ..await probes.ReadAsync(cancellation)])
             : new AccessReply(request.CorrelationId, AccessOutcome.Forbidden);
-        return bus.ReplyAsync(reply, cancellation);
+        await bus.ReplyAsync(reply, cancellation);
     }
 }

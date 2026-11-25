@@ -3,13 +3,25 @@ using HoleLauncherBackend.Messaging;
 
 namespace HoleLauncherBackend.Orchestrator;
 
-internal sealed class OperationHandler(KafkaBus bus, OperationStore operations, DBUtils database)
+internal sealed class OperationHandler(KafkaBus bus, OperationStore operations, DBUtils database, GameNameOperations gameNames, GameTextureOperations gameTextures)
 {
     public async Task HandleAsync(OrchestrationMessage message, CancellationToken cancellation)
     {
         if (message.Result is { } result)
         {
             await operations.FinishAsync(message.OperationId, result, cancellation);
+            return;
+        }
+
+        if (message.GameTexture is not null)
+        {
+            await gameTextures.EnqueueAsync(message, cancellation);
+            return;
+        }
+
+        if (message.ProvisionGameAccount || message.GameName is not null)
+        {
+            await gameNames.EnqueueAsync(message, cancellation);
             return;
         }
 

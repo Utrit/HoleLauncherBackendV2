@@ -6,12 +6,12 @@ namespace HoleLauncherBackend.Api.Endpoints;
 internal sealed class AccountManagementProxy(KafkaAccessClient client, SessionLookup lookup)
 {
     public Task<AccessReply> SendAsync(HttpContext context, AccessOperation operation, CancellationToken cancellation,
-        Guid? accountId = null, string[]? permissions = null, bool? suppressed = null, Guid? operationId = null, string? storageDomain = null)
+        Guid? accountId = null, string[]? permissions = null, bool? suppressed = null, Guid? operationId = null, string? storageDomain = null, string? gameName = null, GameTextureCommand? gameTexture = null)
     {
         if (!context.Request.Cookies.TryGetValue(CookieName, out var sessionId))
             return Task.FromResult(new AccessReply(Guid.Empty, AccessOutcome.InvalidSession));
 
-        return client.SendAsync(operation, lookup.Compute(sessionId), accountId, permissions, suppressed, operationId, storageDomain, cancellation);
+        return client.SendAsync(operation, lookup.Compute(sessionId), accountId, permissions, suppressed, operationId, storageDomain, cancellation, gameName, gameTexture);
     }
 
     public static IResult Result(AccessReply reply) => reply.Outcome switch

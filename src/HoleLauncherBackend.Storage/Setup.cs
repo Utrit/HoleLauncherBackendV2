@@ -40,6 +40,10 @@ internal static class Setup
             await next(context);
         });
         app.MapHealthChecks("/health/live");
+        app.MapGet("/health/status", (FileStore store, CancellationToken cancellation) =>
+            new ServiceStatus("Storage", "Online", store.GetUsedBytes(cancellation)));
+        app.MapGet("/inventory", async (FileStore store, CancellationToken cancellation) =>
+            Results.Ok(await store.ListAsync(cancellation)));
         app.MapFallback("/files/{**path}", () => Results.BadRequest());
         app.MapFallback("/staging/{**path}", () => Results.BadRequest());
         app.Services.GetRequiredService<EndpointMapper<IEndpointRouteBuilder, IStorageEndpoint>>().Map(app);

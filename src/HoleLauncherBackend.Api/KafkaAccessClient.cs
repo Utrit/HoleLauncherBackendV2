@@ -12,7 +12,7 @@ internal sealed class KafkaAccessClient(KafkaBus bus, ILogger<KafkaAccessClient>
     private readonly TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public async Task<AccessReply> SendAsync(
-        AccessOperation operation, string lookup, Guid? accountId, string[]? permissions, bool? suppressed, Guid? operationId, string? storageDomain, CancellationToken cancellation)
+        AccessOperation operation, string lookup, Guid? accountId, string[]? permissions, bool? suppressed, Guid? operationId, string? storageDomain, CancellationToken cancellation, string? gameName = null, GameTextureCommand? gameTexture = null)
     {
         var id = Guid.NewGuid();
         var expiresAt = DateTimeOffset.UtcNow + RequestTimeout;
@@ -23,7 +23,7 @@ internal sealed class KafkaAccessClient(KafkaBus bus, ILogger<KafkaAccessClient>
         try
         {
             await ready.Task.WaitAsync(deadline.Token);
-            var request = new AccessRequest(id, expiresAt, lookup, operation, accountId, permissions, suppressed, operationId, storageDomain);
+            var request = new AccessRequest(id, expiresAt, lookup, operation, accountId, permissions, suppressed, operationId, storageDomain, gameName, gameTexture);
             await bus.PublishAsync(KafkaBus.AccessTopic, accountId?.ToString("N") ?? lookup, request, deadline.Token);
             return await completion.Task.WaitAsync(deadline.Token);
         }

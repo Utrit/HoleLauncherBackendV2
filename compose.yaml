@@ -4,7 +4,15 @@ services:
     image: ${API_IMAGE:-holelauncherbackend-api:local}
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      Proxy__TrustedAddress: ${API_TRUSTED_PROXY:-}
+      Proxy__PublicOrigin: ${PUBLIC_BASE_URL:-http://localhost:${ADMIN_PORT:-8080}}
+      ConnectionStrings__GameProfiles: Host=accounts-db;Database=game_profiles;Username=accounts
+      GameProfiles__Password: ${ACCOUNTS_DB_PASSWORD:?Set ACCOUNTS_DB_PASSWORD in .env}
+      Drasl__Url: ${DRASL_URL:-}
+      Drasl__ApiToken: ${DRASL_API_TOKEN:-}
+      Drasl__CredentialKey: ${DRASL_CREDENTIAL_KEY:-}
       Auth__AccountsUrl: http://access:8080/
+      Repository__Url: http://repository:8080/
       Storage__Url: http://storage:8080/
       Storage__MinUploadBytesPerSecond: ${STORAGE_MIN_UPLOAD_BYTES_PER_SECOND:-500000}
       Auth__SessionKey: ${SESSION_KEY:?Set SESSION_KEY in .env}
@@ -13,7 +21,7 @@ services:
       Kafka__Password: ${KAFKA_API_PASSWORD:?Set KAFKA_API_PASSWORD in .env}
     ports:
       - "127.0.0.1:${ADMIN_PORT:-8080}:8080"
-    networks: [default, accounts_api, kafka_bus, storage_api]
+    networks: [default, accounts_api, accounts_db, kafka_bus, storage_api]
     depends_on:
       init:
         condition: service_completed_successfully
@@ -43,8 +51,15 @@ services:
       Kafka__Username: orchestrator
       Kafka__Password: ${KAFKA_ORCHESTRATOR_PASSWORD:?Set KAFKA_ORCHESTRATOR_PASSWORD in .env}
       ConnectionStrings__Orchestrator: Host=accounts-db;Database=orchestrator;Username=accounts
+      Storage__Url: http://storage:8080/
+      Repository__Url: http://repository:8080/
       Orchestrator__Password: ${ACCOUNTS_DB_PASSWORD:?Set ACCOUNTS_DB_PASSWORD in .env}
-    networks: [kafka_bus, accounts_db]
+      ConnectionStrings__GameProfiles: Host=accounts-db;Database=game_profiles;Username=accounts
+      GameProfiles__Password: ${ACCOUNTS_DB_PASSWORD:?Set ACCOUNTS_DB_PASSWORD in .env}
+      Drasl__Url: ${DRASL_URL:-}
+      Drasl__ApiToken: ${DRASL_API_TOKEN:-}
+      Drasl__CredentialKey: ${DRASL_CREDENTIAL_KEY:-}
+    networks: [default, kafka_bus, accounts_db, storage_api]
     depends_on:
       init:
         condition: service_completed_successfully
@@ -55,12 +70,15 @@ services:
     entrypoint: ["sh", "/init/run.sh"]
     environment:
       ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-admin}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:${ADMIN_PORT:-8080}}
       PGHOST: accounts-db
       PGDATABASE: accounts
       PGUSER: accounts
       PGPASSWORD: ${ACCOUNTS_DB_PASSWORD:?Set ACCOUNTS_DB_PASSWORD in .env}
     volumes:
       - ./deploy/init:/init:ro
+      - ${DRASL_CONFIG_DIR:-./deploy/drasl}:/drasl-source:ro
+      - drasl-config:/drasl-config
     networks: [accounts_db]
     depends_on:
       accounts-db:
@@ -84,6 +102,34 @@ services:
       init:
         condition: service_completed_successfully
 
+  repository:
+    restart: unless-stopped
+    image: ${REPOSITORY_IMAGE:-holelauncherbackend-repository:local}
+    environment:
+      Repository__Root: /data/repository
+      Storage__Url: http://storage:8080/
+    volumes:
+      - repository-data:/data/repository
+    networks: [default, storage_api]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  drasl:
+    profiles: [drasl]
+    restart: unless-stopped
+    image: ${DRASL_IMAGE:-unmojang/drasl:4.0.0}
+    environment:
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:${ADMIN_PORT:-8080}}
+    volumes:
+      - drasl-config:/etc/drasl:ro
+      - drasl-data:/var/lib/drasl
+      - ./src/HoleLauncher.Admin/Assets/Textures:/var/lib/drasl/default-skin:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+        restart: true
+
   kafka-init:
     image: apache/kafka:4.1.2
     restart: "no"
@@ -98,6 +144,7 @@ services:
         condition: service_started
 
   kafka:
+    restart: unless-stopped
     image: apache/kafka:4.1.2
     environment:
       KAFKA_NODE_ID: 1
@@ -137,6 +184,7 @@ services:
     networks: [kafka_bus]
 
   accounts-db:
+    restart: unless-stopped
     image: postgres:17
     environment:
       POSTGRES_DB: accounts
@@ -162,6 +210,9 @@ networks:
     internal: true
 
 volumes:
+  drasl-config:
+  drasl-data:
+  repository-data:
   storage-data:
   accounts-data:
   kafka-data:

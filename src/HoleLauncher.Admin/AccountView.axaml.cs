@@ -3,9 +3,10 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Interactivity;
 using HoleLauncherBackend.Contracts;
+
+using static HoleLauncher.Admin.Locale;
 
 namespace HoleLauncher.Admin;
 
@@ -16,9 +17,13 @@ public sealed partial class AccountView : UserControl
     public AccountView()
     {
         InitializeComponent();
+        AddHandler(PointerMovedEvent, OnRepositoryTreePointerMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerReleasedEvent, OnRepositoryTreePointerReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
+        Program.RegisterModrinthPaste(() => FocusedModrinthSearch() is not null, PasteModrinthSearch);
+        LanguagePicker.SelectedIndex = Program.GetLanguage() == "en" ? 1 : 0;
+        SizeChanged += (_, _) => UpdateDashboardLayout();
         foreach (var permission in Permissions.All)
-            PermissionFlags.Children.Add(new CheckBox { Content = permission });
-        CredentialsPanel.AddHandler(KeyDownEvent, OnCredentialsKeyDown, RoutingStrategies.Tunnel);
+            PermissionFlags.Children.Add(new CheckBox { Content = T($"permission.{permission}"), Tag = permission });
         Loaded += async (_, _) => await UpdateSessionAsync();
     }
 
@@ -35,50 +40,13 @@ public sealed partial class AccountView : UserControl
 
             response.EnsureSuccessStatusCode();
             ShowAccount(await ReadAccountAsync(response));
+            await LoadGameProfileAsync();
             await UpdateServiceStatusAsync();
             await LoadUsersAsync();
         });
     }
 
-    private async void OnCredentialsKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter || !CredentialsPanel.IsEnabled ||
-            !(UserNameInput.IsFocused || PasswordInput.IsInputFocused))
-            return;
-
-        e.Handled = true;
-        await SubmitAsync(register: false);
-    }
-
     private async void OnRefreshStatus(object? sender, RoutedEventArgs e) => await UpdateSessionAsync();
-
-    private async void OnLogin(object? sender, RoutedEventArgs e) => await SubmitAsync(register: false);
-
-    private async void OnRegister(object? sender, RoutedEventArgs e) => await SubmitAsync(register: true);
-
-    private Task SubmitAsync(bool register) => RunAsync(async () =>
-    {
-        var credentials = new Credentials(UserNameInput.Text, PasswordInput.Text ?? string.Empty);
-        PasswordInput.Clear();
-        var route = register ? "/api/auth/register" : "/api/auth/login";
-        using var response = await Api.PostAsJsonAsync(route, credentials, AdminJsonContext.Default.Credentials);
-        if (!register && response.IsSuccessStatusCode)
-        {
-            ShowAccount(await ReadAccountAsync(response));
-            await UpdateServiceStatusAsync();
-            await LoadUsersAsync();
-            return;
-        }
-
-        StatusText.Text = response.StatusCode switch
-        {
-            HttpStatusCode.Created => "Account created.",
-            HttpStatusCode.Conflict => "Error: Account already exists.",
-            HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized => "Error: Invalid credentials.",
-            HttpStatusCode.TooManyRequests => "Error: Too many requests.",
-            _ => "Error: Unknown error."
-        };
-    });
 
     private async void OnLogout(object? sender, RoutedEventArgs e) => await RunAsync(async () =>
     {
@@ -91,14 +59,32 @@ public sealed partial class AccountView : UserControl
 
     private void ShowAccount(AccountIdentity? account)
     {
-        CredentialsPanel.IsVisible = account is null;
+        var changingAccount = currentAccountId != account?.AccountId;
+        currentAccountId = account?.AccountId;
+        Program.ShowLogin(account is null);
+        Dashboard.IsVisible = account is not null;
+        AccountTitle.Text = account?.UserName;
+        if (changingAccount)
+        {
+            AccountOptions.IsVisible = false;
+            activeSection = ProfileNav;
+        }
         LogoutButton.IsVisible = account is not null;
         PermissionsPanel.IsVisible = account is not null;
         var permissions = account?.Permissions ?? [];
-        PermissionsText.Text = permissions.Length == 0 ? "Нет прав" : string.Join(Environment.NewLine, permissions);
-        ServicesPanel.IsVisible = permissions.Contains(Permissions.ReadSystemStatus);
+        PermissionsText.Text = permissions.Length == 0 ? T("account.no_permissions") : string.Join(Environment.NewLine, permissions.Select(permission => T($"permission.{permission}")));
+        ServerNav.IsVisible = permissions.Contains(Permissions.ReadSystemStatus);
         PasswordPanel.IsVisible = account is not null;
-        UserManagementPanel.IsVisible = permissions.Contains(Permissions.EditUsers);
+        ShowGameProfile(account);
+        UsersNav.IsVisible = permissions.Contains(Permissions.EditUsers);
+        RepositoryNav.IsVisible = permissions.Contains(Permissions.RepositoryEdit);
+        OfferNav.IsVisible = permissions.Contains(Permissions.RepositoryOffer);
+        if (changingAccount)
+            ResetOffer();
+        if (changingAccount)
+            OnNewRepositoryBuild(null, new RoutedEventArgs());
+        ConfigureStorage(permissions, changingAccount);
+        UpdateSection();
         if (account is null)
         {
             NewPasswordInput.Clear();
@@ -108,15 +94,15 @@ public sealed partial class AccountView : UserControl
         }
         ServiceRows.Children.Clear();
         ServicesMessage.Text = null;
-        StatusText.Text = account is null ? null : $"{account.UserName}.";
+        DashboardError.Text = null;
     }
 
     private async Task UpdateServiceStatusAsync()
     {
-        if (!ServicesPanel.IsVisible)
+        if (!ServerNav.IsVisible)
             return;
 
-        ServicesMessage.Text = "Загрузка…";
+        ServicesMessage.Text = T("common.loading");
         try
         {
             using var response = await Api.GetAsync("/api/status");
@@ -127,7 +113,8 @@ public sealed partial class AccountView : UserControl
             }
             if (response.StatusCode == HttpStatusCode.Forbidden)
             {
-                ServicesPanel.IsVisible = false;
+                ServerNav.IsVisible = false;
+                UpdateSection();
                 return;
             }
 
@@ -137,9 +124,11 @@ public sealed partial class AccountView : UserControl
             foreach (var service in services)
             {
                 var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8 };
-                var state = new TextBlock { Text = service.State };
+                var status = ServiceState(service.State);
+                var state = new TextBlock { Text = service.UsedBytes is { } bytes
+                    ? T("server.storage_usage", status, StorageSize(bytes)) : status };
                 Grid.SetColumn(state, 1);
-                row.Children.Add(new TextBlock { Text = service.Name, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+                row.Children.Add(new TextBlock { Text = ServiceName(service.Name), TextWrapping = Avalonia.Media.TextWrapping.Wrap });
                 row.Children.Add(state);
                 ServiceRows.Children.Add(row);
             }
@@ -148,7 +137,7 @@ public sealed partial class AccountView : UserControl
         }
         catch (Exception error) when (error is HttpRequestException or JsonException or OperationCanceledException)
         {
-            ServicesMessage.Text = "Статусы недоступны.";
+            ServicesMessage.Text = T("server.unavailable");
         }
     }
 
@@ -156,13 +145,14 @@ public sealed partial class AccountView : UserControl
 
     private async Task LoadUsersAsync()
     {
-        if (!UserManagementPanel.IsVisible)
+        if (!UsersNav.IsVisible)
             return;
 
         using var response = await Api.GetAsync("/api/auth/users");
         if (response.StatusCode == HttpStatusCode.Forbidden)
         {
-            UserManagementPanel.IsVisible = false;
+            UsersNav.IsVisible = false;
+            UpdateSection();
             return;
         }
         response.EnsureSuccessStatusCode();
@@ -170,7 +160,7 @@ public sealed partial class AccountView : UserControl
         var selectedId = SelectedUser?.AccountId;
         users = await response.Content.ReadFromJsonAsync(AdminJsonContext.Default.AccountIdentityArray)
             ?? throw new JsonException("The users response is empty.");
-        UserPicker.ItemsSource = users.Select(user => user.Suppressed ? $"{user.UserName} (заблокирован)" : user.UserName).ToArray();
+        UserPicker.ItemsSource = users.Select(user => user.Suppressed ? T("users.suppressed_name", user.UserName) : user.UserName).ToArray();
         UserPicker.SelectedIndex = Array.FindIndex(users, user => user.AccountId == selectedId);
     }
 
@@ -183,9 +173,9 @@ public sealed partial class AccountView : UserControl
     {
         var permissions = SelectedUser?.Permissions ?? [];
         foreach (var flag in PermissionFlags.Children.OfType<CheckBox>())
-            flag.IsChecked = flag.Content is string permission && permissions.Contains(permission);
+            flag.IsChecked = flag.Tag is string permission && permissions.Contains(permission);
         UserFlagsPanel.IsVisible = SelectedUser is not null;
-        ToggleSuppressionButton.Content = SelectedUser?.Suppressed == true ? "Разблокировать" : "Заблокировать";
+        ToggleSuppressionButton.Content = SelectedUser?.Suppressed == true ? T("users.unblock") : T("users.block");
         UserManagementMessage.Text = null;
     }
 
@@ -200,19 +190,19 @@ public sealed partial class AccountView : UserControl
         try
         {
             var flags = PermissionFlags.Children.OfType<CheckBox>()
-                .Where(flag => flag.IsChecked == true).Select(flag => (string)flag.Content!).ToArray();
+                .Where(flag => flag.IsChecked == true).Select(flag => (string)flag.Tag!).ToArray();
             using var response = await Api.PutAsJsonAsync(
                 $"/api/auth/users/{user.AccountId}/permissions", new PermissionChange(flags),
                 AdminJsonContext.Default.PermissionChange);
-            if (!await WaitForMutationAsync(response, "Не удалось сохранить права."))
+            if (!await WaitForMutationAsync(response, T("users.permissions_failed")))
                 return;
 
             await UpdateSessionAsync();
-            UserManagementMessage.Text = "Права сохранены.";
+            UserManagementMessage.Text = T("users.permissions_saved");
         }
         catch (Exception error) when (error is HttpRequestException or JsonException or OperationCanceledException)
         {
-            UserManagementMessage.Text = "Не удалось сохранить права.";
+            UserManagementMessage.Text = T("users.permissions_failed");
         }
         finally
         {
@@ -236,15 +226,15 @@ public sealed partial class AccountView : UserControl
             using var response = await Api.PutAsJsonAsync(
                 $"/api/auth/users/{user.AccountId}/suppression", new SuppressionChange(suppressed),
                 AdminJsonContext.Default.SuppressionChange);
-            if (!await WaitForMutationAsync(response, "Не удалось изменить блокировку."))
+            if (!await WaitForMutationAsync(response, T("users.block_failed")))
                 return;
 
             await UpdateSessionAsync();
-            UserManagementMessage.Text = suppressed ? "Аккаунт заблокирован." : "Аккаунт разблокирован.";
+            UserManagementMessage.Text = suppressed ? T("users.blocked") : T("users.unblocked");
         }
         catch (Exception error) when (error is HttpRequestException or JsonException or OperationCanceledException)
         {
-            UserManagementMessage.Text = "Не удалось изменить блокировку.";
+            UserManagementMessage.Text = T("users.block_failed");
         }
         finally
         {
@@ -255,18 +245,24 @@ public sealed partial class AccountView : UserControl
     }
 
 
-    private async Task<bool> WaitForMutationAsync(HttpResponseMessage response, string failureMessage)
+    private async Task<bool> WaitForMutationAsync(HttpResponseMessage response, string failureMessage, Action<string>? reportStatus = null)
     {
+        reportStatus ??= text => UserManagementMessage.Text = text;
         if (response.StatusCode != HttpStatusCode.Accepted)
         {
-            UserManagementMessage.Text = failureMessage;
+            reportStatus(failureMessage);
             return false;
         }
 
         var accepted = await response.Content.ReadFromJsonAsync(AdminJsonContext.Default.OperationAccepted)
             ?? throw new JsonException("The accepted operation response is empty.");
-        UserManagementMessage.Text = "Операция выполняется…";
-        var path = $"/api/auth/operations/{accepted.OperationId}";
+        return await WaitForOperationAsync(accepted.OperationId, failureMessage, reportStatus);
+    }
+
+    private async Task<bool> WaitForOperationAsync(Guid operationId, string failureMessage, Action<string> reportStatus)
+    {
+        reportStatus(T("operation.pending"));
+        var path = $"/api/auth/operations/{operationId}";
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         try
         {
@@ -290,7 +286,7 @@ public sealed partial class AccountView : UserControl
                     return true;
                 if (operation.State == OperationState.Failed)
                 {
-                    UserManagementMessage.Text = failureMessage;
+                    reportStatus(OperationError(operation.ErrorMessage, failureMessage));
                     return false;
                 }
 
@@ -299,7 +295,7 @@ public sealed partial class AccountView : UserControl
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
-            UserManagementMessage.Text = $"Операция ещё выполняется. ID: {accepted.OperationId}";
+            reportStatus(T("operation.timeout", operationId));
             return false;
         }
     }
@@ -314,16 +310,16 @@ public sealed partial class AccountView : UserControl
             using var response = await Api.PostAsJsonAsync("/api/auth/password", change, AdminJsonContext.Default.PasswordChange);
             PasswordMessage.Text = response.StatusCode switch
             {
-                HttpStatusCode.NoContent => "Пароль изменён.",
-                HttpStatusCode.BadRequest => "err: cred invalid",
-                HttpStatusCode.Unauthorized => "Сессия истекла.",
-                HttpStatusCode.TooManyRequests => "Слишком много попыток.",
-                _ => "Не удалось изменить пароль."
+                HttpStatusCode.NoContent => T("account.password_saved"),
+                HttpStatusCode.BadRequest => T("auth.invalid"),
+                HttpStatusCode.Unauthorized => T("account.session_expired"),
+                HttpStatusCode.TooManyRequests => T("auth.limited"),
+                _ => T("account.password_failed")
             };
         }
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException)
         {
-            PasswordMessage.Text = "Не удалось изменить пароль.";
+            PasswordMessage.Text = T("account.password_failed");
         }
         finally
         {
@@ -334,7 +330,6 @@ public sealed partial class AccountView : UserControl
 
     private async Task RunAsync(Func<Task> action)
     {
-        CredentialsPanel.IsEnabled = false;
         LogoutButton.IsEnabled = false;
         RefreshStatusButton.IsEnabled = false;
         try
@@ -343,11 +338,13 @@ public sealed partial class AccountView : UserControl
         }
         catch (Exception error) when (error is HttpRequestException or JsonException or OperationCanceledException)
         {
-            StatusText.Text = "Error: Server unreachable.";
+            if (currentAccountId is null)
+                Program.ShowLogin(true, T("common.server_unavailable"));
+            else
+                DashboardError.Text = T("common.server_unavailable");
         }
         finally
         {
-            CredentialsPanel.IsEnabled = true;
             LogoutButton.IsEnabled = true;
             RefreshStatusButton.IsEnabled = true;
         }
@@ -368,4 +365,27 @@ public sealed partial class AccountView : UserControl
 [JsonSerializable(typeof(SuppressionChange))]
 [JsonSerializable(typeof(OperationAccepted))]
 [JsonSerializable(typeof(OperationStatus))]
+[JsonSerializable(typeof(GameProfile))]
+[JsonSerializable(typeof(GameNameChange))]
+[JsonSerializable(typeof(GameTextureChange))]
+[JsonSerializable(typeof(StorageUploadAccepted))]
+[JsonSerializable(typeof(BrowserUploadResponse))]
+[JsonSerializable(typeof(StoredFile[]))]
+[JsonSerializable(typeof(AdminAccountName[]))]
+[JsonSerializable(typeof(HistoryCleanupRequest))]
+[JsonSerializable(typeof(HistoryCleanupResult))]
+[JsonSerializable(typeof(RepositoryDraft))]
+[JsonSerializable(typeof(RepositoryBuildError))]
+[JsonSerializable(typeof(OfferDraft))]
+[JsonSerializable(typeof(OfferTarget[]))]
+[JsonSerializable(typeof(OfferDecision))]
+[JsonSerializable(typeof(RepositoryManifest))]
+[JsonSerializable(typeof(RepositoryChannel))]
+[JsonSerializable(typeof(RepositoryArtifact[]))]
+[JsonSerializable(typeof(RepositoryGameVersion[]))]
+[JsonSerializable(typeof(RepositoryRelease))]
+[JsonSerializable(typeof(RepositoryCatalog))]
+[JsonSerializable(typeof(ModSearchHit[]))]
+[JsonSerializable(typeof(ModSearchHit))]
+[JsonSerializable(typeof(ModVersionChoice[]))]
 internal sealed partial class AdminJsonContext : JsonSerializerContext;

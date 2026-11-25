@@ -72,11 +72,16 @@ internal static class Setup
         container.RegisterType<AccessCommandRouter>().SingleInstance();
         container.RegisterType<LogoutConsumer>().As<IAccessCommandConsumer>().SingleInstance();
         container.RegisterType<SessionConsumer>().As<IAccessCommandConsumer>().SingleInstance();
+        container.RegisterType<AdminDirectoryConsumer>().As<IAccessCommandConsumer>().SingleInstance();
         container.RegisterType<UsersConsumer>().As<IAccessCommandConsumer>().SingleInstance();
         container.RegisterType<SystemStatusConsumer>().As<IAccessCommandConsumer>().SingleInstance();
         container.RegisterType<OperationStatusConsumer>().As<IAccessCommandConsumer>().SingleInstance();
         container.RegisterType<ChangePermissionsConsumer>().As<IAccessCommandConsumer>().SingleInstance();
-        container.RegisterType<StorageUploadConsumer>().As<IAccessCommandConsumer>().SingleInstance();
+        container.RegisterType<ChangeGameTextureConsumer>().As<IAccessCommandConsumer>().SingleInstance();
+        container.RegisterType<ChangeGameNameConsumer>().As<IAccessCommandConsumer>().SingleInstance();
+        container.Register(_ => new StorageUploadConsumer(AccessOperation.StartStorageUpload)).As<IAccessCommandConsumer>().SingleInstance();
+        container.Register(_ => new StorageUploadConsumer(AccessOperation.StartRepositoryUpload)).As<IAccessCommandConsumer>().SingleInstance();
+        container.Register(_ => new StorageUploadConsumer(AccessOperation.StartOfferUpload)).As<IAccessCommandConsumer>().SingleInstance();
         container.RegisterType<ChangeSuppressionConsumer>().As<IAccessCommandConsumer>().SingleInstance();
     }
 

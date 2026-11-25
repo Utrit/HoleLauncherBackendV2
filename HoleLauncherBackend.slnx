@@ -8,6 +8,7 @@
     <Project Path="src/HoleLauncherBackend.Messaging/HoleLauncherBackend.Messaging.csproj" />
     <Project Path="src/HoleLauncherBackend.Orchestrator/HoleLauncherBackend.Orchestrator.csproj" />
     <Project Path="src/HoleLauncherBackend.Shared/HoleLauncherBackend.Shared.csproj" />
+    <Project Path="src/HoleLauncherBackend.Repository/HoleLauncherBackend.Repository.csproj" />
     <Project Path="src/HoleLauncherBackend.Storage/HoleLauncherBackend.Storage.csproj" />
   </Folder>
 </Solution>

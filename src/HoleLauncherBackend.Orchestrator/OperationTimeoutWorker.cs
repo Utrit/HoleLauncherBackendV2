@@ -16,7 +16,7 @@ internal sealed class OperationTimeoutWorker(DBUtils database, StorageUploadHand
             {
                 await database.FailExpiredAccountOperationsAsync(stoppingToken);
                 foreach (var id in await database.FindExpiredUploadsAsync(stoppingToken))
-                    await uploads.RevertAsync(id, "Timeout: Storage не подтвердил завершение шага в срок.", stoppingToken, AccessOutcome.Timeout);
+                    await uploads.RevertAsync(id, "error.storage_timeout", stoppingToken, AccessOutcome.Timeout);
             }
             catch (Exception error) when (error is NpgsqlException or KafkaException { Error.IsFatal: false })
             {

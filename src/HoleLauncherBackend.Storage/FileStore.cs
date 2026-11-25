@@ -14,7 +14,29 @@ internal sealed class FileStore(string root)
 
     private sealed record ActiveUpload(CancellationTokenSource Stop, TaskCompletionSource Completion);
 
-    public async Task<bool> StageAsync(string domain, Guid id, Guid uploader, Stream source, Action<int> recordProgress, CancellationToken cancellation)
+    public long GetUsedBytes(CancellationToken cancellation)
+    {
+        long used = 0;
+        var options = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            AttributesToSkip = FileAttributes.ReparsePoint
+        };
+        if (!Directory.Exists(root))
+            return used;
+
+        foreach (var path in Directory.EnumerateFiles(root, "*", options))
+        {
+            cancellation.ThrowIfCancellationRequested();
+            try { used += new FileInfo(path).Length; }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+        }
+
+        return used;
+    }
+
+    public async Task<bool> StageAsync(string domain, Guid id, Guid uploader, Stream source, Action<int> recordProgress, CancellationToken cancellation, string? fileName = null)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         var active = new ActiveUpload(stop, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
@@ -23,7 +45,7 @@ internal sealed class FileStore(string root)
 
         try
         {
-            return await StageFileAsync(domain, id, uploader, source, recordProgress, stop.Token);
+            return await StageFileAsync(domain, id, uploader, source, recordProgress, stop.Token, fileName);
         }
         finally
         {
@@ -32,7 +54,7 @@ internal sealed class FileStore(string root)
         }
     }
 
-    private async Task<bool> StageFileAsync(string domain, Guid id, Guid uploader, Stream source, Action<int> recordProgress, CancellationToken cancellation)
+    private async Task<bool> StageFileAsync(string domain, Guid id, Guid uploader, Stream source, Action<int> recordProgress, CancellationToken cancellation, string? fileName = null)
     {
         var partial = StagingPath(domain, id, "part");
         var ready = StagingPath(domain, id, "ready");
@@ -62,7 +84,7 @@ internal sealed class FileStore(string root)
 
             var publicDomain = StorageAddress.IsPrivateUserDataDomain(domain) ? StorageAddress.UserDataDomain : domain;
             var metadata = new StorageFileMetadata(publicDomain, id, uploader, DateTimeOffset.UtcNow, size,
-                Convert.ToHexStringLower(hash.Hash!));
+                Convert.ToHexStringLower(hash.Hash!), fileName);
             await using (var index = File.Create(Path.Combine(partial, "metadata.json")))
                 await JsonSerializer.SerializeAsync(index, metadata, Json, cancellation);
 
@@ -127,6 +149,34 @@ internal sealed class FileStore(string root)
         {
             return null;
         }
+    }
+
+    public async Task<StoredFile[]> ListAsync(CancellationToken cancellation)
+    {
+        if (!Directory.Exists(root))
+            return [];
+
+        var files = new List<StoredFile>();
+        foreach (var directory in Directory.EnumerateDirectories(root))
+        {
+            var domain = Path.GetFileName(directory);
+            if (!StorageAddress.IsValidDomain(domain))
+                continue;
+            foreach (var path in Directory.EnumerateDirectories(directory))
+            {
+                cancellation.ThrowIfCancellationRequested();
+                if (!Guid.TryParseExact(Path.GetFileName(path), "D", out var id))
+                    continue;
+
+                await using var metadata = Open(domain, id, "metadata.json");
+                if (metadata is null)
+                    continue;
+                var file = await JsonSerializer.DeserializeAsync<StorageFileMetadata>(metadata, Json, cancellation);
+                if (file is not null)
+                    files.Add(new StoredFile(domain, file));
+            }
+        }
+        return files.ToArray();
     }
 
     public void Delete(string domain, Guid id) => RemoveDirectory(FinalPath(domain, id));

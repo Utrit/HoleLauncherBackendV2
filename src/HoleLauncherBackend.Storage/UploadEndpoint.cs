@@ -26,7 +26,7 @@ internal sealed class UploadEndpoint : IStorageEndpoint
         var watch = watchdog.RunAsync(id, progress, transfer);
         try
         {
-            return await storage.StageAsync(domain, id, uploader, request.Body, progress.Record, transfer.Token)
+            return await storage.StageAsync(domain, id, uploader, request.Body, progress.Record, transfer.Token, ReadFileName(request))
                 ? Results.NoContent()
                 : Results.Conflict();
         }
@@ -39,5 +39,16 @@ internal sealed class UploadEndpoint : IStorageEndpoint
             await transfer.CancelAsync();
             await watch;
         }
+    }
+
+    private static string? ReadFileName(HttpRequest request)
+    {
+        var value = request.Headers["X-Storage-File-Name"].ToString();
+        if (value.Length == 0 || value.Length > 1024)
+            return null;
+
+        var name = Uri.UnescapeDataString(value).Trim();
+        return name.Length is > 0 and <= 255 && !name.Any(character =>
+            char.IsControl(character) || character is '/' or '\\') && name is not "." and not ".." ? name : null;
     }
 }

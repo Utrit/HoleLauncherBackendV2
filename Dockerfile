@@ -22,3 +22,10 @@ COPY storage/ ./
 RUN install -d -o "$APP_UID" /data/storage
 USER $APP_UID
 ENTRYPOINT ["dotnet", "HoleLauncherBackend.Storage.dll"]
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS repository
+WORKDIR /app
+COPY repository/ ./
+RUN install -d -o "$APP_UID" /data/repository
+USER $APP_UID
+ENTRYPOINT ["dotnet", "HoleLauncherBackend.Repository.dll"]

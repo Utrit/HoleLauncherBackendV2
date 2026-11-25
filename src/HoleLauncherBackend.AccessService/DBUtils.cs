@@ -15,10 +15,10 @@ internal sealed class DBUtils(NpgsqlDataSource database)
         int iterations, CancellationToken cancellation)
     {
         await using var command = Create("""
-            INSERT INTO accounts (id, user_name, normalized_user_name, password_hash, password_salt, password_iterations)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO accounts (id, user_name, normalized_user_name, password_hash, password_salt, password_iterations, permissions)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (normalized_user_name) DO NOTHING
-            """, account.AccountId, account.UserName, account.UserName.ToUpperInvariant(), hash, salt, iterations);
+            """, account.AccountId, account.UserName, account.UserName.ToUpperInvariant(), hash, salt, iterations, account.Permissions);
         return await command.ExecuteNonQueryAsync(cancellation) == 1;
     }
 

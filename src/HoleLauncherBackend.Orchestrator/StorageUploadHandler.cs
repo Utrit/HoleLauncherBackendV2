@@ -26,19 +26,19 @@ internal sealed class StorageUploadHandler(KafkaBus bus, DBUtils database)
         if (transfer.TimedOut || transfer.Complete)
         {
             await RevertAsync(transfer.OperationId,
-                transfer.TimedOut ? "Timeout: скорость загрузки ниже минимальной." : "Timeout: истёк срок загрузки.",
+                transfer.TimedOut ? "error.upload_slow" : "error.upload_expired",
                 cancellation, AccessOutcome.Timeout);
             return;
         }
 
-        await RevertAsync(transfer.OperationId, "Передача файла прервалась.", cancellation);
+        await RevertAsync(transfer.OperationId, "error.upload_interrupted", cancellation);
     }
 
     public async Task FinishAsync(StorageResult result, CancellationToken cancellation)
     {
         if (result.Status == ResultStatus.Failed)
         {
-            await RevertAsync(result.OperationId, result.ErrorMessage ?? "Storage не завершил шаг.", cancellation);
+            await RevertAsync(result.OperationId, result.ErrorMessage ?? "error.storage_step_failed", cancellation);
             return;
         }
 

@@ -6,6 +6,7 @@ public static class StorageAddress
 {
     public const string UserDataDomain = "userdata";
     private const string UserDataPrefix = "userdata-";
+    public const int MaxOfferImageBytes = 1024 * 1024;
     public const long MaxUploadBytes = 1024L * 1024 * 1024;
 
     public static bool TryParseFileId(string value, out Guid id) =>
@@ -33,9 +34,11 @@ public static class StorageAddress
     public static string ResolveDomain(string domain, Guid accountId) =>
         domain == UserDataDomain ? $"{UserDataPrefix}{accountId:N}" : domain;
 
-    public static bool IsPrivateUserDataDomain(string domain) =>
-        domain.StartsWith(UserDataPrefix, StringComparison.Ordinal) &&
-        Guid.TryParseExact(domain.AsSpan(UserDataPrefix.Length), "N", out _);
+    public static bool IsPrivateUserDataDomain(string domain) => TryGetUserDataOwner(domain, out _);
+
+    public static bool TryGetUserDataOwner(string domain, out Guid owner) =>
+        Guid.TryParseExact(domain.StartsWith(UserDataPrefix, StringComparison.Ordinal)
+            ? domain.AsSpan(UserDataPrefix.Length) : default, "N", out owner);
 
     public static bool IsValidDomain(string domain) =>
         domain.Length is > 0 and <= 64 && domain.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_');
@@ -50,4 +53,9 @@ public enum StorageStep { Publish, Revert }
 public enum ResultStatus { Failed, Complete }
 public sealed record StorageResult(Guid OperationId, StorageStep Step, ResultStatus Status, string? ErrorMessage = null);
 
-public sealed record StorageFileMetadata(string Domain, Guid FileId, Guid UploadedBy, DateTimeOffset UploadedAt, long Size, string Sha512);
+public sealed record StorageFileMetadata(string Domain, Guid FileId, Guid UploadedBy, DateTimeOffset UploadedAt, long Size, string Sha512, string? FileName = null);
+
+public sealed record StoredFile(string Domain, StorageFileMetadata Metadata, string? Label = null);
+public sealed record AdminAccountName(Guid AccountId, string UserName);
+public sealed record HistoryCleanupRequest(Guid? AccountId, bool All = false);
+public sealed record HistoryCleanupResult(int NameEntries, int TextureEntries);

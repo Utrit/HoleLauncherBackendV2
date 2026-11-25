@@ -2,9 +2,9 @@ using HoleLauncherBackend.Contracts;
 
 namespace HoleLauncherBackend.AccessService.AccessCommands;
 
-internal sealed class StorageUploadConsumer : IAccessCommandConsumer
+internal sealed class StorageUploadConsumer(AccessOperation operation) : IAccessCommandConsumer
 {
-    public AccessOperation Operation => AccessOperation.StartStorageUpload;
+    public AccessOperation Operation => operation;
 
     public Task ConsumeAsync(AccessCommandContext context, CancellationToken cancellation)
     {
@@ -12,8 +12,16 @@ internal sealed class StorageUploadConsumer : IAccessCommandConsumer
             return context.ReplyAsync(AccessOutcome.InvalidRequest, cancellation);
 
         var permissions = context.Account.Permissions;
-        if (!permissions.Contains(Permissions.StorageUpload) &&
-            !(domain == StorageAddress.UserDataDomain && permissions.Contains(Permissions.StorageUserDataUpload)))
+        var allowed = operation switch
+        {
+            AccessOperation.StartOfferUpload => domain == RepositoryStorage.OfferDomain(context.Account.AccountId) &&
+                permissions.Contains(Permissions.RepositoryOffer),
+            AccessOperation.StartRepositoryUpload => RepositoryStorage.DomainFor(domain) == domain &&
+                !domain.StartsWith("offer-", StringComparison.Ordinal) && permissions.Contains(Permissions.RepositoryEdit),
+            _ => permissions.Contains(Permissions.StorageUpload) ||
+                (domain == StorageAddress.UserDataDomain && permissions.Contains(Permissions.StorageUserDataUpload))
+        };
+        if (!allowed)
             return context.ReplyAsync(AccessOutcome.Forbidden, cancellation);
 
         var storageDomain = StorageAddress.ResolveDomain(domain, context.Account.AccountId);

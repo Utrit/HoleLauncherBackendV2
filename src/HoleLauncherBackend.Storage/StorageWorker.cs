@@ -29,7 +29,7 @@ internal sealed class StorageWorker(KafkaBus bus, FileStore storage, ILogger<Sto
             if (!decision.Publish)
                 await storage.RevertAsync(decision.Domain, id, cancellation);
             else if (!storage.TryPublish(decision.Domain, id))
-                return new StorageResult(id, step, ResultStatus.Failed, "Временный файл не готов к публикации.");
+                return new StorageResult(id, step, ResultStatus.Failed, "error.storage_not_ready");
 
             return new StorageResult(id, step, ResultStatus.Complete);
         }
@@ -37,7 +37,7 @@ internal sealed class StorageWorker(KafkaBus bus, FileStore storage, ILogger<Sto
         {
             logger.LogWarning("Storage could not complete {Step} for {OperationId}: {ErrorType}",
                 step, id, error.GetType().Name);
-            return new StorageResult(id, step, ResultStatus.Failed, "Ошибка файловой операции в Storage.");
+            return new StorageResult(id, step, ResultStatus.Failed, "error.storage_io");
         }
     }
 }

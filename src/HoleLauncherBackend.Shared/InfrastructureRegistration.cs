@@ -17,13 +17,15 @@ public static class InfrastructureRegistration
 
     public static void AddPostgres(this IServiceCollection services, IConfiguration configuration, string name)
     {
-        services.AddSingleton(_ =>
+        services.AddSingleton(_ => CreatePostgres(configuration, name));
+    }
+
+    public static NpgsqlDataSource CreatePostgres(IConfiguration configuration, string name)
+    {
+        var connection = new NpgsqlConnectionStringBuilder(configuration.GetConnectionString(name))
         {
-            var connection = new NpgsqlConnectionStringBuilder(configuration.GetConnectionString(name))
-            {
-                Password = configuration[$"{name}:Password"]
-            };
-            return NpgsqlDataSource.Create(connection.ConnectionString);
-        });
+            Password = configuration[$"{name}:Password"]
+        };
+        return NpgsqlDataSource.Create(connection.ConnectionString);
     }
 }
