@@ -35,7 +35,7 @@ internal static partial class Program
     public static partial JSObject CreateRepositoryFile(string name, byte[] data);
 
     [JSImport("chooseRepositoryFile", "admin")]
-    public static partial Task<JSObject?> ChooseRepositoryFile(bool image);
+    public static partial Task<JSObject?> ChooseRepositoryFile(bool image, bool zip = false);
 
     [JSImport("takeRepositoryDrop", "admin")]
     public static partial JSObject? TakeRepositoryDrop();

@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using System.Runtime.InteropServices.JavaScript;
 using static HoleLauncher.Admin.Locale;
 using HoleLauncherBackend.Contracts;
@@ -14,8 +16,41 @@ public sealed partial class AccountView
     private static bool IsZip(JSObject file) =>
         file.GetPropertyAsString("name")?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) == true;
 
+    private async void OnChooseRepositoryZip(object? sender, RoutedEventArgs e)
+    {
+        var account = gameAccountId;
+        var version = selectedRepositoryVersion;
+        var name = Value(RepositoryName);
+        try
+        {
+            using var zip = await Program.ChooseRepositoryFile(false, zip: true);
+            if (zip is not null && account == gameAccountId && version == selectedRepositoryVersion &&
+                name == Value(RepositoryName) && RepositoryPanel.IsVisible)
+                await ImportRepositoryZipAsync(zip);
+        }
+        catch (JSException)
+        {
+            RepositoryMessage.Text = T("repository.zip_invalid");
+        }
+    }
+
+    private async void OnRepositoryDropZip(object? sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        using var zip = Program.TakeRepositoryDrop();
+        if (zip is not null)
+            await ImportRepositoryZipAsync(zip);
+    }
+
     private async Task ImportRepositoryZipAsync(JSObject file)
     {
+        if (repositoryUploading || !RepositoryPanel.IsEnabled)
+            return;
+        if (!IsZip(file))
+        {
+            RepositoryMessage.Text = T("repository.zip_expected");
+            return;
+        }
         if (RepositoryStorage.DomainFor(Value(RepositoryName)) is null)
         {
             RepositoryMessage.Text = T("repository.upload_name");
@@ -39,7 +74,7 @@ public sealed partial class AccountView
                 RenderRepositoryFiles();
                 return true;
             }, AddRepositoryFolder, message => RepositoryMessage.Text = message);
-            ResetRepositoryUploads();
+            RenderRepositoryFiles();
         });
     }
 

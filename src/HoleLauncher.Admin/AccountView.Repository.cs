@@ -383,12 +383,6 @@ public sealed partial class AccountView
             return;
         }
 
-        if (IsZip(file))
-        {
-            await ImportRepositoryZipAsync(file);
-            return;
-        }
-
         await RunRepositoryAsync(async () =>
         {
             var account = gameAccountId;
@@ -726,14 +720,13 @@ public sealed partial class AccountView
                 buttons.Children.Add(CreateLockPicker(file, project));
         }
         row.Children.Add(buttons);
-        if (file.StorageId.HasValue)
-        {
-            var editor = CreateCardEditor(file);
-            var edit = new Button { Content = T("repository.edit_card") };
-            edit.Click += (_, _) => editor.IsVisible = !editor.IsVisible;
-            buttons.Children.Add(edit);
-            row.Children.Add(editor);
-        }
+        var editor = CreateCardEditor(file, automatic);
+        var edit = new Button { Content = T("repository.edit_card") };
+        if (automatic)
+            ToolTip.SetTip(edit, T("repository.pin_dependency_hint"));
+        edit.Click += (_, _) => editor.IsVisible = !editor.IsVisible;
+        buttons.Children.Add(edit);
+        row.Children.Add(editor);
         if (dependencies is { Count: > 0 })
             row.Children.Add(CreateDependencyCards(dependencies));
         return new Border
@@ -810,7 +803,7 @@ public sealed partial class AccountView
         _ => "#8FCB82"
     });
 
-    private Control CreateCardEditor(RepositoryFile file)
+    private Control CreateCardEditor(RepositoryFile file, bool automatic)
     {
         var title = new TextBox { Text = file.Card.Title, Watermark = T("repository.title") };
         var description = new TextBox { Text = file.Card.Description, Watermark = T("repository.description") };
@@ -828,8 +821,7 @@ public sealed partial class AccountView
             if (Value(title).Length == 0)
                 return;
             var card = new ModCard(Value(title), Value(description), iconUrl);
-            repositoryFiles = repositoryFiles.Select(entry => ReferenceEquals(entry, file) ? entry with { Card = card } : entry).ToArray();
-            RenderRepositoryFiles();
+            UpdateRepositoryFile(file, file with { Card = card }, automatic);
         };
         return new StackPanel
         {

@@ -133,11 +133,12 @@ function createRepositoryFile(name, data) {
     return new File([data], name, { type: "application/octet-stream" });
 }
 
-function chooseRepositoryFile(image) {
+function chooseRepositoryFile(image, zip) {
     return new Promise(resolve => {
         const input = document.createElement("input");
         input.type = "file";
         if (image) input.accept = "image/png,image/jpeg,image/webp";
+        else if (zip) input.accept = ".zip,application/zip";
         input.hidden = true;
         const finish = () => {
             input.remove();

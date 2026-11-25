@@ -215,6 +215,12 @@
                   <Button Content="{local:Loc repository.add}" Click="OnAddRepositoryStorage" />
                 </StackPanel>
               </TabItem>
+              <TabItem Header="{local:Loc repository.batch}">
+                <Border Padding="12" CornerRadius="6" BorderThickness="1" BorderBrush="#53647A" Background="#1A2230"
+                        input:DragDrop.AllowDrop="True" input:DragDrop.DragOver="OnRepositoryDragOver" input:DragDrop.Drop="OnRepositoryDropZip">
+                  <Button Content="{local:Loc repository.choose_zip}" Click="OnChooseRepositoryZip" />
+                </Border>
+              </TabItem>
               <TabItem Header="{local:Loc offer.users}">
                 <StackPanel Spacing="8">
                   <Button Content="{local:Loc offer.refresh}" Click="OnRefreshOffers" />
