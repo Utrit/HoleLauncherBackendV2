@@ -24,6 +24,15 @@ internal sealed class AccountOperationExecutor(DBUtils database, IEnumerable<IAc
     private async Task<AccessOutcome> ApplyAsync(NpgsqlTransaction transaction, AccountOperationCommand command, CancellationToken cancellation)
     {
         await DBUtils.LockAccountsAsync(transaction, [command.ActorId, command.AccountId], cancellation);
+        if (command.Mutation == AccountMutation.FinalizeRegistration)
+        {
+            if (command.OperationId != command.AccountId || command.ActorId != command.AccountId ||
+                command.RegistrationSucceeded is not { } succeeded)
+                return AccessOutcome.InvalidRequest;
+            await DBUtils.FinalizeRegistrationAsync(transaction, command.AccountId, succeeded, cancellation);
+            return AccessOutcome.NoContent;
+        }
+
         if (!await DBUtils.HasPermissionAsync(transaction, command.ActorId, Permissions.EditUsers, cancellation))
             return AccessOutcome.Forbidden;
 

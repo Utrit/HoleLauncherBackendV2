@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     permissions text[] NOT NULL DEFAULT ARRAY['storage.download','storage.userdata.upload','game.user.edit','game.user.skin','game.user.cape','repository.offer'],
     suppressed boolean NOT NULL DEFAULT false
 );
+CREATE TABLE IF NOT EXISTS pending_registrations (
+    account_id uuid PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS account_sessions (
     session_lookup text PRIMARY KEY,
     account_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,

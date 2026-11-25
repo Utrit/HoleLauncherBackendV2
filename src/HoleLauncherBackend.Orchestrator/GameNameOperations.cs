@@ -88,17 +88,24 @@ internal sealed class GameNameOperations(
 
     public async Task ReportAsync(CancellationToken cancellation)
     {
-        var results = new List<(Guid Id, Guid Account, AccessOutcome Outcome, string Error)>();
+        var results = new List<(Guid Id, Guid Account, AccessOutcome Outcome, string Error, bool Provision)>();
         await using (var select = game.CreateSqlCommand("""
-            SELECT operation_id, account_id, outcome, COALESCE(error_message, '') FROM game_name_history
+            SELECT operation_id, account_id, outcome, COALESCE(error_message, ''), provision FROM game_name_history
             WHERE state <> 'pending' AND NOT reported ORDER BY sequence LIMIT 50
             """))
         await using (var rows = await select.ExecuteReaderAsync(cancellation))
             while (await rows.ReadAsync(cancellation))
-                results.Add((rows.GetGuid(0), rows.GetGuid(1), (AccessOutcome)rows.GetInt32(2), rows.GetString(3)));
+                results.Add((rows.GetGuid(0), rows.GetGuid(1), (AccessOutcome)rows.GetInt32(2), rows.GetString(3), rows.GetBoolean(4)));
 
         foreach (var result in results)
         {
+            if (result.Provision)
+            {
+                var command = new AccountOperationCommand(result.Id, result.Account, result.Account, AccountMutation.FinalizeRegistration,
+                    null, null, result.Outcome == AccessOutcome.NoContent);
+                await bus.PublishAsync(KafkaBus.AccountExecutionTopic, result.Account.ToString("N"), command, cancellation);
+                continue;
+            }
             await operations.FinishGameOperationAsync(result.Id, result.Account, result.Outcome, result.Error, cancellation);
             await using var mark = game.CreateSqlCommand(
                 "UPDATE game_name_history SET reported = true WHERE operation_id = $1", result.Id);
@@ -106,9 +113,33 @@ internal sealed class GameNameOperations(
         }
     }
 
+    public async Task AcknowledgeRegistrationAsync(Guid id, Guid accountId, CancellationToken cancellation)
+    {
+        await using var query = game.CreateSqlCommand("""
+            SELECT outcome, COALESCE(error_message, '') FROM game_name_history
+            WHERE operation_id = $1 AND account_id = $2 AND provision AND state <> 'pending' AND NOT reported
+            """, id, accountId);
+        AccessOutcome outcome;
+        string error;
+        await using (var row = await query.ExecuteReaderAsync(cancellation))
+        {
+            if (!await row.ReadAsync(cancellation))
+                return;
+            outcome = (AccessOutcome)row.GetInt32(0);
+            error = row.GetString(1);
+        }
+        await operations.FinishGameOperationAsync(id, accountId, outcome, error, cancellation);
+        await using var mark = game.CreateSqlCommand(
+            "UPDATE game_name_history SET reported = true WHERE operation_id = $1", id);
+        await mark.ExecuteNonQueryAsync(cancellation);
+    }
+
     private async Task<(AccessOutcome Outcome, string Name, string? Error)> UpdateDraslAsync(
         Guid accountId, string requestedName, string previousName, bool provision, CancellationToken cancellation)
     {
+        if (!drasl.IsConfigured)
+            return (AccessOutcome.Unavailable, requestedName, "error.drasl_unconfirmed");
+
         try
         {
             var current = await drasl.ProvisionAsync(accountId, provision ? requestedName : previousName, cancellation);
@@ -126,7 +157,7 @@ internal sealed class GameNameOperations(
         catch (Exception error) when (!cancellation.IsCancellationRequested &&
             error is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException)
         {
-            if (!provision && await WasAppliedAsync(accountId, requestedName, cancellation))
+            if (await WasAppliedAsync(accountId, requestedName, cancellation))
                 return (AccessOutcome.NoContent, requestedName, null);
             return (error is OperationCanceledException ? AccessOutcome.Timeout : AccessOutcome.Unavailable,
                 requestedName, "error.drasl_unconfirmed");

@@ -28,6 +28,7 @@ internal sealed class AccountExecutionMessageHandler(KafkaBus bus, AccountOperat
         }
 
         await bus.PublishAsync(KafkaBus.OperationsTopic, command.OperationId.ToString("N"),
-            new OrchestrationMessage(Guid.Empty, command.ActorId, command.OperationId, Result: outcome), cancellation);
+            new OrchestrationMessage(Guid.Empty, command.ActorId, command.OperationId, Result: outcome,
+                ProvisionGameAccount: command.Mutation == AccountMutation.FinalizeRegistration), cancellation);
     }
 }

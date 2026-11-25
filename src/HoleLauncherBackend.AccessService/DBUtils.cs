@@ -15,11 +15,25 @@ internal sealed class DBUtils(NpgsqlDataSource database)
         int iterations, CancellationToken cancellation)
     {
         await using var command = Create("""
-            INSERT INTO accounts (id, user_name, normalized_user_name, password_hash, password_salt, password_iterations, permissions)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (normalized_user_name) DO NOTHING
+            WITH new_account AS (
+                INSERT INTO accounts (id, user_name, normalized_user_name, password_hash, password_salt, password_iterations, permissions)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (normalized_user_name) DO NOTHING
+                RETURNING id
+            )
+            INSERT INTO pending_registrations (account_id) SELECT id FROM new_account
             """, account.AccountId, account.UserName, account.UserName.ToUpperInvariant(), hash, salt, iterations, account.Permissions);
         return await command.ExecuteNonQueryAsync(cancellation) == 1;
+    }
+
+    public static async Task FinalizeRegistrationAsync(NpgsqlTransaction transaction, Guid accountId, bool succeeded,
+        CancellationToken cancellation)
+    {
+        await using var command = transaction.CreateSqlCommand(succeeded
+            ? "DELETE FROM pending_registrations WHERE account_id = $1"
+            : "DELETE FROM accounts WHERE id = $1 AND EXISTS (SELECT 1 FROM pending_registrations WHERE account_id = $1)",
+            accountId);
+        await command.ExecuteNonQueryAsync(cancellation);
     }
 
     public async Task<LoginData?> ReadLoginAsync(string userName, CancellationToken cancellation)
@@ -27,6 +41,7 @@ internal sealed class DBUtils(NpgsqlDataSource database)
         await using var command = Create("""
             SELECT id, user_name, permissions, password_hash, password_salt, password_iterations
             FROM accounts WHERE normalized_user_name = $1 AND NOT suppressed
+              AND NOT EXISTS (SELECT 1 FROM pending_registrations WHERE account_id = accounts.id)
             """, userName.ToUpperInvariant());
         await using var reader = await command.ExecuteReaderAsync(cancellation);
         return await reader.ReadAsync(cancellation)
@@ -40,7 +55,9 @@ internal sealed class DBUtils(NpgsqlDataSource database)
         await using var command = Create("""
             INSERT INTO account_sessions (session_lookup, account_id, expires_at)
             SELECT $1, id, now() + interval '8 hours'
-            FROM accounts WHERE id = $2 AND password_hash = $3 AND NOT suppressed FOR UPDATE
+            FROM accounts WHERE id = $2 AND password_hash = $3 AND NOT suppressed
+              AND NOT EXISTS (SELECT 1 FROM pending_registrations WHERE account_id = accounts.id)
+            FOR UPDATE
             """, lookup, accountId, expectedHash);
         return await command.ExecuteNonQueryAsync(cancellation) == 1;
     }
@@ -60,7 +77,7 @@ internal sealed class DBUtils(NpgsqlDataSource database)
 
     public async Task<AccountIdentity[]> ListAccountsAsync(CancellationToken cancellation)
     {
-        await using var command = Create("SELECT id, user_name, permissions, suppressed FROM accounts ORDER BY normalized_user_name");
+        await using var command = Create("SELECT id, user_name, permissions, suppressed FROM accounts WHERE NOT EXISTS (SELECT 1 FROM pending_registrations WHERE account_id = accounts.id) ORDER BY normalized_user_name");
         await using var reader = await command.ExecuteReaderAsync(cancellation);
         var accounts = new List<AccountIdentity>();
         while (await reader.ReadAsync(cancellation))

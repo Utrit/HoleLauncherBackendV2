@@ -1,6 +1,5 @@
 using System.Net;
 using HoleLauncherBackend.Contracts;
-using HoleLauncherBackend.Shared;
 
 namespace HoleLauncherBackend.Api.Endpoints;
 
@@ -8,10 +7,10 @@ internal sealed class RegisterEndpoint : IAccountEndpoint
 {
     public void Map(IEndpointRouteBuilder routes)
     {
-        routes.MapPost("/register", async (Credentials credentials, IHttpClientFactory clients, DraslClient drasl, GameRegistration registration, CancellationToken cancellation) =>
+        routes.MapPost("/register", async (Credentials credentials, IHttpClientFactory clients, GameRegistration registration, CancellationToken cancellation) =>
         {
             using var response = await clients.CreateClient("accounts").PostAsJsonAsync("register", credentials, cancellation);
-            if (response.IsSuccessStatusCode && drasl.IsConfigured)
+            if (response.IsSuccessStatusCode)
             {
                 var account = await response.Content.ReadFromJsonAsync<AccountIdentity>(cancellation);
                 if (account is null)
@@ -26,7 +25,6 @@ internal sealed class RegisterEndpoint : IAccountEndpoint
             }
             return response.StatusCode switch
             {
-                HttpStatusCode.OK => Results.StatusCode(201),
                 HttpStatusCode.BadRequest => Results.BadRequest(),
                 HttpStatusCode.Conflict => Results.Conflict(),
                 HttpStatusCode.TooManyRequests => Results.StatusCode(429),

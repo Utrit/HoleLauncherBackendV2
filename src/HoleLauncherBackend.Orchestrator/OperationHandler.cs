@@ -9,7 +9,13 @@ internal sealed class OperationHandler(KafkaBus bus, OperationStore operations, 
     {
         if (message.Result is { } result)
         {
-            await operations.FinishAsync(message.OperationId, result, cancellation);
+            if (message.ProvisionGameAccount)
+            {
+                if (result == AccessOutcome.NoContent)
+                    await gameNames.AcknowledgeRegistrationAsync(message.OperationId, message.ActorId, cancellation);
+            }
+            else
+                await operations.FinishAsync(message.OperationId, result, cancellation);
             return;
         }
 

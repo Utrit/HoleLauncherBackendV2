@@ -41,7 +41,7 @@ internal sealed class GameProfileStore(NpgsqlDataSource database)
     public async Task<bool?> GetProvisionStatusAsync(Guid accountId, CancellationToken cancellation)
     {
         await using var query = database.CreateSqlCommand("""
-            SELECT state FROM game_name_history WHERE operation_id = $1 AND account_id = $1 AND provision
+            SELECT state FROM game_name_history WHERE operation_id = $1 AND account_id = $1 AND provision AND reported
             """, accountId);
         return (await query.ExecuteScalarAsync(cancellation) as string) switch
         {

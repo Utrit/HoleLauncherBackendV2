@@ -32,12 +32,11 @@ internal sealed class LoginEndpoint : IAccountEndpoint
         });
 
         routes.MapPost("/login/form", async (HttpContext context, IWebHostEnvironment environment,
-            IHttpClientFactory clients, CancellationToken cancellation) =>
+            IHttpClientFactory clients, IConfiguration configuration, CancellationToken cancellation) =>
         {
             if (!context.Request.HasFormContentType ||
                 context.Request.ContentType?.StartsWith("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) != true ||
-                !string.Equals(context.Request.Headers.Origin, $"{context.Request.Scheme}://{context.Request.Host}",
-                    StringComparison.OrdinalIgnoreCase))
+                !IsExpectedOrigin(context, configuration))
                 return Results.BadRequest();
 
             var form = await context.Request.ReadFormAsync(cancellation);
@@ -50,6 +49,14 @@ internal sealed class LoginEndpoint : IAccountEndpoint
                 _ => "/?login=unavailable"
             });
         });
+    }
+
+    private static bool IsExpectedOrigin(HttpContext context, IConfiguration configuration)
+    {
+        var expected = Uri.TryCreate(configuration["Proxy:PublicOrigin"], UriKind.Absolute, out var origin)
+            ? origin.GetLeftPart(UriPartial.Authority)
+            : $"{context.Request.Scheme}://{context.Request.Host}";
+        return string.Equals(context.Request.Headers.Origin, expected, StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<(int Status, CreatedSession? Session)> CreateSessionAsync(

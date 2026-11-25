@@ -51,6 +51,14 @@ public sealed class DraslClient(IConfiguration configuration) : IDisposable
         using var response = await http.SendAsync(request, cancellation);
         if (response.StatusCode == HttpStatusCode.NotFound)
             return null;
+        // Drasl 4 may mask a missing player as an internal error in the management API.
+        if (response.StatusCode == HttpStatusCode.InternalServerError)
+        {
+            using var profile = await http.GetAsync(
+                Address($"authlib-injector/sessionserver/session/minecraft/profile/{accountId:N}"), cancellation);
+            if (profile.StatusCode == HttpStatusCode.NoContent)
+                return null;
+        }
         response.EnsureSuccessStatusCode();
         var player = await response.Content.ReadFromJsonAsync<ManagedPlayer>(cancellation);
         if (player?.Uuid != accountId || string.IsNullOrEmpty(player.Name))

@@ -1,18 +1,14 @@
-using HoleLauncherBackend.Shared;
 using Npgsql;
 
 namespace HoleLauncherBackend.Orchestrator;
 
-internal sealed class GameNameWorker(GameNameOperations operations, DraslClient drasl,
+internal sealed class GameNameWorker(GameNameOperations operations,
     ILogger<GameNameWorker> logger) : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!drasl.IsConfigured)
-            return;
-
         using var timer = new PeriodicTimer(PollInterval);
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
