@@ -15,7 +15,25 @@ public sealed partial class AccountView
     private int repositoryMatch = -1;
 
     private Control CreateFlatRepositoryCard(RepositoryFile file) =>
-        CreateRepositoryFileCard(file, false, FindAutomaticDependencies(file.ProjectId, flatResolvedMods, flatExplicitProjects));
+        new Border { Height = 36, Padding = new Avalonia.Thickness(8, 4), ClipToBounds = true,
+            BorderThickness = new Avalonia.Thickness(3, 0, 0, 0), BorderBrush = TypeBrush(file.Type),
+            Child = CreateCard(file.Card, compact: true) };
+
+    private void OnFlatRepositoryFileSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (e.Source == RepositoryFiles)
+            ShowFlatRepositoryDetails();
+    }
+
+    private void ShowFlatRepositoryDetails()
+    {
+        if (RepositoryFlatDetails is null)
+            return;
+        RepositoryFlatDetails.Content = RepositoryFiles.SelectedItem is RepositoryFile file
+            ? CreateRepositoryFileCard(file, false,
+                FindAutomaticDependencies(file.ProjectId, flatResolvedMods, flatExplicitProjects))
+            : null;
+    }
 
     private void OpenRepositoryFind()
     {

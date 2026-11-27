@@ -19,8 +19,19 @@ public sealed partial class AccountView
         await RunLauncherActionAsync(async cancellation =>
         {
             LauncherRepository.Text = "";
-            var release = await Api.GetFromJsonAsync(LauncherEndpointPath, AdminJsonContext.Default.LauncherRelease, cancellation);
-            ShowLauncherRelease(release);
+            using var response = await Api.GetAsync(LauncherEndpointPath, cancellation);
+            if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+            {
+                ShowLauncherRelease(null);
+                return;
+            }
+            if (response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable)
+            {
+                LauncherMessage.Text = T("launcher.unavailable");
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            ShowLauncherRelease(await response.Content.ReadFromJsonAsync(AdminJsonContext.Default.LauncherRelease, cancellation));
         });
     }
 

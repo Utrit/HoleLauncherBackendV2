@@ -28,13 +28,23 @@ internal sealed class LauncherEndpoint(AccountManagementProxy accounts, IHttpCli
         if (!account.Permissions.Contains(Permissions.EditLauncher))
             return Results.StatusCode(StatusCodes.Status403Forbidden);
 
-        var client = clients.CreateClient("launcher");
-        using var response = source is null
-            ? await client.GetAsync("release", ct)
-            : await client.PutAsJsonAsync("release", new LauncherImport(source.Repository, account.AccountId), ct);
-        return response.IsSuccessStatusCode
-            ? Results.Json(await response.Content.ReadFromJsonAsync<LauncherRelease>(ct))
-            : Results.StatusCode((int)response.StatusCode);
+        try
+        {
+            using var client = clients.CreateClient("launcher");
+            using var response = source is null
+                ? await client.GetAsync("release", ct)
+                : await client.PutAsJsonAsync("release", new LauncherImport(source.Repository, account.AccountId), ct);
+            if (!response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NoContent)
+                return Results.StatusCode((int)response.StatusCode);
+
+            var release = await response.Content.ReadFromJsonAsync<LauncherRelease>(ct);
+            return release is null ? Results.NoContent() : Results.Ok(release);
+        }
+        catch (Exception error) when (error is HttpRequestException ||
+            error is OperationCanceledException && !ct.IsCancellationRequested)
+        {
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
     }
 
     private async Task<IResult> DownloadAsync(HttpContext context, string path, string? filename)

@@ -793,7 +793,15 @@ public sealed partial class AccountView
         {
             var index = repositoryFileRows.IndexOf(file);
             if (index >= 0)
+            {
+                var selected = ReferenceEquals(RepositoryFiles.SelectedItem, file);
                 repositoryFileRows[index] = updated;
+                if (selected)
+                {
+                    RepositoryFiles.SelectedIndex = index;
+                    ShowFlatRepositoryDetails();
+                }
+            }
             RefreshRepositoryMatches();
             return;
         }
@@ -890,6 +898,10 @@ public sealed partial class AccountView
         return panel;
     }
 
+    private const int RepositoryIconCacheLimit = 128;
+    private static readonly SemaphoreSlim repositoryIconDownloads = new(4);
+    private static readonly Dictionary<(Uri Address, int Width), Task<Bitmap?>> repositoryIcons = [];
+
     private static Control CreateCard(ModCard card, bool compact = false)
     {
         var size = compact ? 18 : 40;
@@ -904,26 +916,57 @@ public sealed partial class AccountView
         cardLayout.Children.Add(placeholder);
         Grid.SetColumn(details, 1);
         cardLayout.Children.Add(details);
-        if (!string.IsNullOrWhiteSpace(card.IconUrl))
-            _ = LoadRepositoryIconAsync(image, card.IconUrl);
+        if (card.IconUrl is { Length: > 0 } iconUrl)
+            image.AttachedToVisualTree += (sender, args) => _ = SetRepositoryIconAsync(image, iconUrl);
         return cardLayout;
     }
 
-    private static async Task LoadRepositoryIconAsync(Image image, string url)
+    private static async Task<Bitmap?> DownloadRepositoryIconAsync(Uri address, int size)
+    {
+        await repositoryIconDownloads.WaitAsync();
+        try
+        {
+            using var stream = new MemoryStream(await Api.GetByteArrayAsync(address), writable: false);
+            return Bitmap.DecodeToWidth(stream, size);
+        }
+        catch (Exception error) when (error is HttpRequestException or ArgumentException or InvalidOperationException or IOException or OperationCanceledException)
+        {
+            return null;
+        }
+        finally { repositoryIconDownloads.Release(); }
+    }
+
+    private static async Task SetRepositoryIconAsync(Image image, string url)
     {
         var source = ModrinthAssets.IsCdnUrl(url)
             ? $"{RepositoryPath}/mod-icon?url={Uri.EscapeDataString(url)}" : url;
         if (!Uri.TryCreate(Api.BaseAddress, source, out var address) ||
             address.GetLeftPart(UriPartial.Authority) != Api.BaseAddress!.GetLeftPart(UriPartial.Authority))
             return;
-        try
+
+        var key = (address, (int)image.Width);
+        if (!repositoryIcons.TryGetValue(key, out var download))
         {
-            using var stream = new MemoryStream(await Api.GetByteArrayAsync(address), writable: false);
-            image.Source = Bitmap.DecodeToWidth(stream, (int)image.Width);
+            if (repositoryIcons.Count >= RepositoryIconCacheLimit)
+            {
+                foreach (var old in repositoryIcons.Keys)
+                {
+                    if (repositoryIcons[old].IsCompleted)
+                    {
+                        repositoryIcons.Remove(old);
+                        break;
+                    }
+                }
+            }
+
+            if (repositoryIcons.Count >= RepositoryIconCacheLimit)
+                return;
+            download = DownloadRepositoryIconAsync(address, key.Item2);
+            repositoryIcons.Add(key, download);
         }
-        catch (Exception error) when (error is HttpRequestException or ArgumentException or InvalidOperationException or IOException or OperationCanceledException)
-        {
-        }
+
+        if (await download is { } bitmap)
+            image.Source = bitmap;
     }
 
     private async Task RunRepositoryAsync(Func<Task> action)

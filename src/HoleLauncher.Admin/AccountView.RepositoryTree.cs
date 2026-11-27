@@ -53,7 +53,7 @@ public sealed partial class AccountView
         RepositoryBuildFilesTab.IsSelected = true;
         var tree = RepositoryTreeToggle.IsChecked == true;
         RepositoryTreePanel.IsVisible = tree;
-        RepositoryFiles.IsVisible = !tree;
+        RepositoryFiles.IsVisible = RepositoryFlatDetails.IsVisible = !tree;
         RenderRepositoryFiles();
     }
 

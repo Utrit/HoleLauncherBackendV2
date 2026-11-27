@@ -22,7 +22,7 @@ builder.Services.AddHttpClient("github", client =>
 
 var app = builder.Build();
 app.MapGet("/health", () => Results.Ok());
-app.MapGet("/release", (LauncherStore store) => Results.Json(store.Current));
+app.MapGet("/release", (LauncherStore store) => store.Current is { } release ? Results.Ok(release) : Results.NoContent());
 app.MapPut("/release", async (LauncherImport request, LauncherStore store, CancellationToken cancellation) =>
 {
     try

@@ -183,6 +183,7 @@
                     <Button Grid.Column="4" Content="×" ToolTip.Tip="{local:Loc repository.find_close}" Click="OnCloseRepositoryFind" />
                   </Grid>
                   <ListBox x:Name="RepositoryFiles" MaxHeight="560" Background="Transparent"
+                           SelectionChanged="OnFlatRepositoryFileSelected"
                            ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListBox.ItemsPanel>
                       <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
@@ -194,6 +195,7 @@
                       </Style>
                     </ListBox.Styles>
                   </ListBox>
+                  <ContentControl x:Name="RepositoryFlatDetails" />
                   <StackPanel x:Name="RepositoryTreePanel" IsVisible="False" Spacing="8">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                       <TextBox x:Name="RepositoryNewFolder" Watermark="{local:Loc repository.folder_name}" />

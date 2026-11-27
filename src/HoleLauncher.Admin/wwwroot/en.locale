@@ -298,6 +298,7 @@
   "launcher.repository": "https://github.com/owner/repository",
   "launcher.import": "Import latest release",
   "launcher.invalid": "Paste a link to a GitHub repository.",
+  "launcher.unavailable": "The launcher service is unavailable.",
   "launcher.failed": "Could not import the launcher release. Check that both release assets are available.",
   "launcher.empty": "No launcher release has been imported.",
   "launcher.ready": "Release {0} is available.",

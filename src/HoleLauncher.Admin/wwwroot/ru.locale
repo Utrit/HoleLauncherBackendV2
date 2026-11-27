@@ -298,6 +298,7 @@
   "launcher.repository": "https://github.com/owner/repository",
   "launcher.import": "Импортировать последний релиз",
   "launcher.invalid": "Вставьте ссылку на репозиторий GitHub.",
+  "launcher.unavailable": "Сервис лаунчера недоступен.",
   "launcher.failed": "Не удалось импортировать релиз. Проверьте, что в нём доступны оба файла лаунчера.",
   "launcher.empty": "Релиз лаунчера ещё не импортирован.",
   "launcher.ready": "Релиз {0} доступен для скачивания.",
