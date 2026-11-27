@@ -134,7 +134,12 @@ public sealed partial class AccountView : UserControl
         if (changingAccount)
             ResetOffer();
         if (changingAccount)
+        {
+            repositoryBuildCancellation?.Cancel();
+            RepositoryBuildStatus.Text = null;
+            RepositoryBuildReport.IsVisible = RepositoryReportButton.IsVisible = false;
             OnNewRepositoryBuild(null, new RoutedEventArgs());
+        }
         ConfigureStorage(permissions, changingAccount);
         UpdateSection();
         if (account is null)

@@ -189,6 +189,11 @@ public sealed partial class AccountView
         RepositorySelectedMods.Children.Clear();
         pendingOfferAcceptances.Clear();
         selectedRepositoryVersion = manifest;
+        if (repositoryBuildCancellation is null)
+        {
+            RepositoryBuildStatus.Text = null;
+            ShowRepositoryBuildReport(manifest.Warnings);
+        }
         var draft = manifest.Build;
         RepositoryName.Text = draft.Name;
         SetRepositoryCompatibility(draft.Minecraft, draft.Loader, draft.LoaderVersion);
@@ -207,6 +212,11 @@ public sealed partial class AccountView
         RepositorySelectedMods.Children.Clear();
         pendingOfferAcceptances.Clear();
         selectedRepositoryVersion = null;
+        if (repositoryBuildCancellation is null)
+        {
+            RepositoryBuildStatus.Text = null;
+            ShowRepositoryBuildReport(null);
+        }
         RepositoryName.Text = null;
         repositoryFolders = [];
         selectedTreeFolder = selectedTreeFile = null;
@@ -278,30 +288,19 @@ public sealed partial class AccountView
         RepositoryMoreMods.IsEnabled = false;
     }
 
-    private async void OnBuildRepositoryVersion(object? sender, RoutedEventArgs e) => await RunRepositoryAsync(async () =>
+    private RepositoryDraft? ReadRepositoryDraft()
     {
         if (RepositoryMinecraft.SelectedItem is not string minecraft ||
             RepositoryLoader.SelectedItem is not RepositoryLoaderChoice loader ||
             RepositoryLoaderVersion.SelectedItem is not string loaderVersion)
-        {
-            RepositoryMessage.Text = T("repository.invalid");
-            return;
-        }
+            return null;
 
-        var id = selectedRepositoryVersion?.BuildId ?? Guid.NewGuid();
         var acceptedOffers = pendingOfferAcceptances.Where(entry => repositoryFiles.Any(file =>
             entry.Value.ProjectId is { } project ? project == file.ProjectId :
             file.StorageDomain == entry.Value.StorageDomain && file.StorageId == entry.Value.StorageId)).Select(entry => entry.Key).ToArray();
-        var draft = new RepositoryDraft(Value(RepositoryName), "", minecraft, loader.Loader.Id, loaderVersion,
-            repositoryFolders
-                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), repositoryFiles, acceptedOffers);
-        var manifest = await ReadRepositoryBuildAsync(id, draft);
-        if (manifest is null)
-            return;
-        await LoadRepositoryAsync();
-        SelectRepositoryVersion(manifest);
-        RepositoryMessage.Text = T("repository.built", manifest.Build.Version);
-    });
+        return new RepositoryDraft(Value(RepositoryName), "", minecraft, loader.Loader.Id, loaderVersion,
+            repositoryFolders.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), repositoryFiles.ToArray(), acceptedOffers);
+    }
 
     private async void OnRepositorySearchKeyDown(object? sender, KeyEventArgs e)
     {

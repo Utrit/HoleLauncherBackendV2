@@ -43,6 +43,8 @@ internal sealed class CatalogStore
 
             var numberText = (previousNumber + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
             var accepted = (manifest.Build.AcceptedOffers ?? []).ToHashSet();
+            var acceptedIds = new HashSet<Guid>();
+            var offerConflict = false;
             var offers = snapshot.Offers;
             foreach (var (offer, item) in offers?.SelectMany(offer => offer.Files.Select(item => (offer, item))) ?? [])
             {
@@ -51,13 +53,23 @@ internal sealed class CatalogStore
                 if (item.Accepted is not null || (offer.BuildId is { } target && target != manifest.BuildId) ||
                     !manifest.Build.Files.Any(file => file.ProjectId is { } project
                     ? project == item.File.ProjectId : file.StorageDomain == item.File.StorageDomain && file.StorageId == item.File.StorageId))
-                    return Results.Conflict(new RepositoryBuildError("build.offer_conflict", []));
+                {
+                    offerConflict = true;
+                    continue;
+                }
+                if (manifest.Files.Any(file => item.File.ProjectId is { } project
+                        ? file.ProjectId == project && (item.File.VersionLock is null || file.ModVersionId == item.File.VersionLock)
+                        : item.File.StorageDomain is { } domain && item.File.StorageId is { } storageId &&
+                          file.ProjectId is null && file.Url == RepositoryStorage.FileUrl(domain, storageId)))
+                    acceptedIds.Add(item.Id);
             }
-            if (accepted.Count != 0)
-                return Results.Conflict(new RepositoryBuildError("build.offer_conflict", []));
-
-            var version = manifest with { Build = manifest.Build with { Version = numberText, AcceptedOffers = null } };
-            var acceptedIds = (manifest.Build.AcceptedOffers ?? []).ToHashSet();
+            var version = manifest with
+            {
+                Build = manifest.Build with { Version = numberText, AcceptedOffers = null },
+                Warnings = offerConflict || accepted.Count != 0
+                    ? [.. manifest.Warnings ?? [], new("build.offer_conflict", [])]
+                    : manifest.Warnings
+            };
             if (acceptedIds.Count != 0 && offers is not null)
                 offers = offers.Select(offer => offer with { Files = offer.Files.Select(item =>
                     acceptedIds.Contains(item.Id) ? item with { Accepted = true } : item).ToArray() }).ToArray();
@@ -194,9 +206,17 @@ internal sealed class CatalogStore
     private async Task SaveAsync(RepositoryCatalog next, CancellationToken ct)
     {
         var temporary = path + ".tmp";
-        await using (var stream = File.Create(temporary))
-            await JsonSerializer.SerializeAsync(stream, next, Json, ct);
-        File.Move(temporary, path, overwrite: true);
-        catalog = next;
+        try
+        {
+            await using (var stream = File.Create(temporary))
+                await JsonSerializer.SerializeAsync(stream, next, Json, ct);
+            ct.ThrowIfCancellationRequested();
+            File.Move(temporary, path, overwrite: true);
+            catalog = next;
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
     }
 }

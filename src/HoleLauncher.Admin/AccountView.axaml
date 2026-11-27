@@ -152,9 +152,15 @@
               <ComboBox Grid.Column="2" x:Name="RepositoryLoaderVersion" HorizontalAlignment="Stretch" PlaceholderText="{local:Loc repository.loader_version}"
                         AutomationProperties.Name="{local:Loc repository.loader_version}" />
             </Grid>
-            <Button Content="{local:Loc repository.build}" Click="OnBuildRepositoryVersion" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button x:Name="RepositoryBuildButton" Content="{local:Loc repository.build}" Click="OnBuildRepositoryVersion" />
+              <Button x:Name="RepositoryCancelBuildButton" Content="{local:Loc repository.cancel_build}"
+                      IsVisible="False" Click="OnCancelRepositoryBuild" />
+            </StackPanel>
             <TextBlock x:Name="RepositoryMessage" TextWrapping="Wrap" />
-            <TextBox x:Name="RepositoryBuildProgressText" IsVisible="False" IsReadOnly="True" MaxHeight="180" TextWrapping="Wrap" />
+            <TextBlock x:Name="RepositoryBuildStatus" TextWrapping="Wrap" />
+            <TextBox x:Name="RepositoryBuildProgressText" IsVisible="False" IsReadOnly="True" MaxHeight="180"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" />
             <Button x:Name="RepositoryReportButton" IsVisible="False" Content="{local:Loc repository.build_report}" Click="OnShowRepositoryReport" />
             <TextBox x:Name="RepositoryBuildReport" IsVisible="False" IsReadOnly="True" MaxHeight="220" TextWrapping="Wrap" />
             <TextBlock x:Name="RepositoryUploadMessage" TextWrapping="Wrap" />

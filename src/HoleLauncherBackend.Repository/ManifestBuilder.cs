@@ -24,6 +24,7 @@ internal sealed class ManifestBuilder(ModResolver mods, IHttpClientFactory clien
             if (!RepositoryStorage.IsSafeFolder(folder))
                 errors.Enqueue(new("build.invalid_folder", [folder ?? ""]));
 
+        var folders = draft.Folders.Where(RepositoryStorage.IsSafeFolder).ToArray();
         var cache = mods.CreateCache(draft.Minecraft, draft.Loader, ct);
         var seenProjects = new HashSet<string>(StringComparer.Ordinal);
         var work = new List<(int Index, RepositoryFile File)>();
@@ -32,7 +33,7 @@ internal sealed class ManifestBuilder(ModResolver mods, IHttpClientFactory clien
             var file = draft.Files[index];
             if (file is null || file.Card is null || !Enum.IsDefined(file.Type) || file.Folder is null)
                 errors.Enqueue(new("build.invalid_file", [file?.Card?.Title ?? ""]));
-            else if (file.Folder.Length != 0 && !draft.Folders.Contains(file.Folder, StringComparer.OrdinalIgnoreCase))
+            else if (file.Folder.Length != 0 && !folders.Contains(file.Folder, StringComparer.OrdinalIgnoreCase))
                 errors.Enqueue(new("build.missing_folder", [file.Card.Title, file.Folder]));
             else if (file.ProjectId is { } project && !seenProjects.Add(project))
                 errors.Enqueue(new("build.duplicate_mod", [file.Card.Title]));
@@ -88,39 +89,81 @@ internal sealed class ManifestBuilder(ModResolver mods, IHttpClientFactory clien
         });
 
         var resolved = Array.Empty<RepositoryArtifact>();
+        var accepted = new List<RepositoryFile>();
         if (!validated.IsEmpty)
         {
-            var roots = validated.OrderBy(entry => entry.Key).Select(entry => entry.Value).ToArray();
-            RepositoryBuildError? dependencyError = null;
+            var roots = validated.OrderByDescending(entry => entry.Value.VersionLock is not null)
+                .ThenBy(entry => entry.Key).Select(entry => entry.Value).ToArray();
+            await IncludeRootsAsync(roots);
+        }
+
+        var files = resolved.ToList();
+        var paths = resolved.Select(file => file.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var (index, artifact) in storage.OrderBy(entry => entry.Key))
+        {
+            if (HasPathConflict(artifact.Path, paths))
+            {
+                errors.Enqueue(new("build.path_conflict", [artifact.Path]));
+                progress?.Invoke(new(index, artifact.Card.Title, "Failed"));
+                continue;
+            }
+            paths.Add(artifact.Path);
+            files.Add(artifact);
+        }
+
+        ct.ThrowIfCancellationRequested();
+        var requested = work.Select(item => item.File).ToArray();
+        return new(id, draft with { Folders = folders, Files = requested }, [.. files], false,
+            errors.IsEmpty ? null : errors.ToArray());
+
+        async Task IncludeRootsAsync(RepositoryFile[] candidates)
+        {
+            ct.ThrowIfCancellationRequested();
+            RepositoryBuildError? issue = null;
             try
             {
-                var combined = await mods.ResolveAsync(new(draft.Minecraft, draft.Loader, roots), ct,
-                    (key, args) => dependencyError = new(key, args), cache);
-                if (combined is null)
-                    errors.Enqueue(dependencyError ?? new("repository.dependencies_failed", []));
-                else
-                    resolved = combined;
+                var artifacts = await mods.ResolveAsync(new(draft.Minecraft, draft.Loader, [.. accepted, .. candidates]), ct,
+                    (key, args) => issue = new(key, args), cache);
+                if (artifacts is not null)
+                {
+                    var selectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    var collision = artifacts.FirstOrDefault(file =>
+                        HasPathConflict(file.Path, selectedPaths) || !selectedPaths.Add(file.Path));
+                    if (collision is null)
+                    {
+                        accepted.AddRange(candidates);
+                        resolved = artifacts;
+                        return;
+                    }
+                    issue = new("build.path_conflict", [collision.Path]);
+                }
             }
             catch (Exception error) when (!ct.IsCancellationRequested &&
                 error is HttpRequestException or JsonException or OperationCanceledException)
             {
-                errors.Enqueue(new("build.upstream", []));
+                issue = candidates.Length == 1 ? new("build.file_upstream", [candidates[0].Card.Title]) : null;
             }
+
+            if (candidates.Length == 1)
+            {
+                errors.Enqueue(issue ?? new("build.mod_unresolved", [candidates[0].Card.Title]));
+                var index = Array.IndexOf(draft.Files, candidates[0]);
+                progress?.Invoke(new(index, candidates[0].Card.Title, "Failed"));
+                return;
+            }
+
+            var middle = candidates.Length / 2;
+            await IncludeRootsAsync(candidates[..middle]);
+            await IncludeRootsAsync(candidates[middle..]);
         }
 
-        var files = resolved.Concat(storage.OrderBy(entry => entry.Key).Select(entry => entry.Value)).ToArray();
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var artifact in files)
-        {
-            if (paths.Any(path => path.StartsWith(artifact.Path + "/", StringComparison.OrdinalIgnoreCase) ||
-                    artifact.Path.StartsWith(path + "/", StringComparison.OrdinalIgnoreCase)) || !paths.Add(artifact.Path) ||
-                draft.Folders.Any(folder => folder is not null && (folder.Equals(artifact.Path, StringComparison.OrdinalIgnoreCase) ||
-                    folder.StartsWith(artifact.Path + "/", StringComparison.OrdinalIgnoreCase))))
-                errors.Enqueue(new("build.path_conflict", [artifact.Path]));
-        }
-        if (!errors.IsEmpty)
-            throw new BuildRejectedException(errors.ToArray());
-        return new(id, draft, files, false);
+        bool HasPathConflict(string path, HashSet<string> selected) =>
+            selected.Contains(path) ||
+            selected.Any(existing => existing.StartsWith(path + "/", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith(existing + "/", StringComparison.OrdinalIgnoreCase)) ||
+            folders.Any(folder => folder.Equals(path, StringComparison.OrdinalIgnoreCase) ||
+                folder.StartsWith(path + "/", StringComparison.OrdinalIgnoreCase));
+
     }
 
     private async Task<RepositoryArtifact> ResolveStorageAsync(RepositoryFile file, CancellationToken ct)

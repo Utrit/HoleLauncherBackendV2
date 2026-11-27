@@ -18,7 +18,7 @@ public sealed record RepositoryDraft(string Name, string Version, string Minecra
     string LoaderVersion, string[] Folders, RepositoryFile[] Files, Guid[]? AcceptedOffers = null);
 public sealed record RepositoryArtifact(string Path, RepositoryFileType Type, ModCard Card, string Url,
     string Sha512, string FileVersion, string? ProjectId, string? ModVersionId, string[] Dependencies, bool? ClientSide = null, bool? ServerSide = null);
-public sealed record RepositoryManifest(Guid BuildId, RepositoryDraft Build, RepositoryArtifact[] Files, bool Test);
+public sealed record RepositoryManifest(Guid BuildId, RepositoryDraft Build, RepositoryArtifact[] Files, bool Test, RepositoryBuildError[]? Warnings = null);
 public sealed record RepositoryRelease(Guid BuildId, string Version, bool Test);
 public sealed record RepositoryCatalog(RepositoryManifest[] Versions, RepositoryRelease[] Releases, Dictionary<Guid, long>? HighestVersions = null, RepositoryOffer[]? Offers = null);
 
