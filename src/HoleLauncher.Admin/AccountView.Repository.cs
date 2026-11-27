@@ -186,7 +186,6 @@ public sealed partial class AccountView
 
     private void SelectRepositoryVersion(RepositoryManifest manifest)
     {
-        repositoryPage = 0;
         RepositorySelectedMods.Children.Clear();
         pendingOfferAcceptances.Clear();
         selectedRepositoryVersion = manifest;
@@ -205,7 +204,6 @@ public sealed partial class AccountView
 
     private void OnNewRepositoryBuild(object? sender, RoutedEventArgs e)
     {
-        repositoryPage = 0;
         RepositorySelectedMods.Children.Clear();
         pendingOfferAcceptances.Clear();
         selectedRepositoryVersion = null;
@@ -583,43 +581,24 @@ public sealed partial class AccountView
             RepositoryUploadMessage.Text = null;
     }
 
-    private const int RepositoryPageSize = 16;
-    private int repositoryPage;
-
-    private void OnPreviousRepositoryFiles(object? sender, RoutedEventArgs e)
-    {
-        repositoryPage--;
-        RenderRepositoryFiles();
-    }
-
-    private void OnNextRepositoryFiles(object? sender, RoutedEventArgs e)
-    {
-        repositoryPage++;
-        RenderRepositoryFiles();
-    }
+    private HashSet<string> flatExplicitProjects = [];
+    private Dictionary<string, RepositoryArtifact> flatResolvedMods = [];
 
     private void RenderRepositoryFiles()
     {
-        RepositoryFiles.Children.Clear();
-        RepositoryFilePager.IsVisible = RepositoryTreeToggle.IsChecked != true && repositoryFiles.Length > RepositoryPageSize;
         if (RepositoryTreeToggle.IsChecked == true)
         {
             RenderRepositoryTree(repositoryFiles.Select(file => new RepositoryTreeFile(file, false))
                 .Concat(DraftAutomaticDependencies().Select(file => new RepositoryTreeFile(DependencyFile(file), true))));
-            return;
         }
-        var explicitProjects = repositoryFiles.Select(file => file.ProjectId).OfType<string>().ToHashSet();
-        var mods = resolvedRepositoryMods.Where(file => file.ProjectId is not null).ToDictionary(file => file.ProjectId!);
-        var lastPage = Math.Max(0, (repositoryFiles.Length - 1) / RepositoryPageSize);
-        repositoryPage = Math.Clamp(repositoryPage, 0, lastPage);
-        RepositoryFilePage.Text = $"{repositoryPage + 1} / {lastPage + 1}";
-        RepositoryPreviousFiles.IsEnabled = repositoryPage > 0;
-        RepositoryNextFiles.IsEnabled = repositoryPage < lastPage;
-        foreach (var file in repositoryFiles.Skip(repositoryPage * RepositoryPageSize).Take(RepositoryPageSize))
+        else
         {
-            var dependencies = FindAutomaticDependencies(file.ProjectId, mods, explicitProjects);
-            RepositoryFiles.Children.Add(CreateRepositoryFileCard(file, automatic: false, dependencies));
+            flatExplicitProjects = repositoryFiles.Select(file => file.ProjectId).OfType<string>().ToHashSet();
+            flatResolvedMods = resolvedRepositoryMods.Where(file => file.ProjectId is not null).ToDictionary(file => file.ProjectId!);
+            repositoryFileRows = new(repositoryFiles);
+            RepositoryFiles.ItemsSource = repositoryFileRows;
         }
+        RefreshRepositoryMatches();
     }
 
     private IEnumerable<RepositoryArtifact> DraftAutomaticDependencies()
@@ -810,13 +789,12 @@ public sealed partial class AccountView
         AddRepositoryFolder(updated.Folder);
         repositoryFiles = automatic ? [.. repositoryFiles, updated] :
             repositoryFiles.Select(entry => ReferenceEquals(entry, file) ? updated : entry).ToArray();
-        if (!automatic && RepositoryTreeToggle.IsChecked != true &&
-            RepositoryFiles.Children.FirstOrDefault(child => ReferenceEquals(child.Tag, file)) is { } card)
+        if (!automatic && RepositoryTreeToggle.IsChecked != true)
         {
-            var projects = repositoryFiles.Select(entry => entry.ProjectId).OfType<string>().ToHashSet();
-            var mods = resolvedRepositoryMods.Where(entry => entry.ProjectId is not null).ToDictionary(entry => entry.ProjectId!);
-            var dependencies = FindAutomaticDependencies(updated.ProjectId, mods, projects);
-            RepositoryFiles.Children[RepositoryFiles.Children.IndexOf(card)] = CreateRepositoryFileCard(updated, false, dependencies);
+            var index = repositoryFileRows.IndexOf(file);
+            if (index >= 0)
+                repositoryFileRows[index] = updated;
+            RefreshRepositoryMatches();
             return;
         }
         if (!automatic && file.Folder == updated.Folder && file.Card == updated.Card &&
@@ -826,6 +804,7 @@ public sealed partial class AccountView
             var next = new RepositoryTreeFile(updated, false);
             node.Tag = next;
             ShowTreeFile(next);
+            RefreshRepositoryMatches();
             return;
         }
         RenderRepositoryFiles();

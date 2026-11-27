@@ -17,6 +17,10 @@ public sealed partial class AccountView : UserControl
     public AccountView()
     {
         InitializeComponent();
+        RepositoryFiles.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<RepositoryFile>(
+            (file, _) => CreateFlatRepositoryCard(file));
+        Program.RegisterRepositoryFind(
+            () => RepositoryPanel.IsVisible && RepositoryBuildFilesTab.IsSelected, OpenRepositoryFind);
         AddHandler(PointerMovedEvent, OnRepositoryTreePointerMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerReleasedEvent, OnRepositoryTreePointerReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
         Program.RegisterBrowserPaste(() => FocusedPasteInput() is not null, PasteText);

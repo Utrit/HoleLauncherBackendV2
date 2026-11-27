@@ -10,4 +10,4 @@ public sealed record OperationStatus(Guid OperationId, OperationState State, Acc
 public sealed record AccountOperationCommand(
     Guid OperationId, Guid ActorId, Guid AccountId, AccountMutation Mutation, string[]? Permissions, bool? Suppressed, bool? RegistrationSucceeded = null);
 public sealed record OrchestrationMessage(
-    Guid CorrelationId, Guid ActorId, Guid OperationId, DateTimeOffset? ExpiresAt = null, AccountOperationCommand? Command = null, AccessOutcome? Result = null, string? UploadDomain = null, string? GameName = null, bool ProvisionGameAccount = false, GameTextureCommand? GameTexture = null);
+    Guid CorrelationId, Guid ActorId, Guid OperationId, DateTimeOffset? ExpiresAt = null, AccountOperationCommand? Command = null, AccessOutcome? Result = null, string? UploadDomain = null, string? GameName = null, bool ProvisionGameAccount = false, GameTextureCommand? GameTexture = null, bool DiscardLauncherArtifact = false);

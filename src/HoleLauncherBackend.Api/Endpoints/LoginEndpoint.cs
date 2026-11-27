@@ -31,6 +31,8 @@ internal sealed class LoginEndpoint : IAccountEndpoint
             });
         });
 
+        routes.MapPost("/game-session", RenewGameSessionAsync);
+
         routes.MapPost("/login/form", async (HttpContext context, IWebHostEnvironment environment,
             IHttpClientFactory clients, IConfiguration configuration, CancellationToken cancellation) =>
         {
@@ -49,6 +51,30 @@ internal sealed class LoginEndpoint : IAccountEndpoint
                 _ => "/?login=unavailable"
             });
         });
+    }
+
+    private static async Task<IResult> RenewGameSessionAsync(HttpContext context, AccountManagementProxy accounts,
+        DraslClient drasl, CancellationToken cancellation)
+    {
+        if (context.Request.Headers["X-HoleLauncher-Request"] != "1")
+            return Results.BadRequest();
+
+        var reply = await accounts.SendAsync(context, AccessOperation.Session, cancellation);
+        if (reply is not { Outcome: AccessOutcome.Ok, Account: { } account })
+            return AccountManagementProxy.Result(reply);
+
+        context.Response.Headers.CacheControl = "no-store";
+        if (drasl.IsConfigured)
+        {
+            try
+            {
+                if (await drasl.AuthenticateAsync(account.AccountId, cancellation) is { } session)
+                    return Results.Ok(session);
+            }
+            catch (Exception error) when (!cancellation.IsCancellationRequested &&
+                error is HttpRequestException or OperationCanceledException or JsonException) { }
+        }
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
     }
 
     private static bool IsExpectedOrigin(HttpContext context, IConfiguration configuration)

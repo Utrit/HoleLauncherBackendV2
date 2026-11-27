@@ -56,6 +56,13 @@ internal sealed class StorageUploadHandler(KafkaBus bus, DBUtils database)
         }
     }
 
+    public async Task DiscardLauncherArtifactAsync(Guid id, CancellationToken cancellation)
+    {
+        if (await database.BeginUploadRevertAsync(id, "error.upload_interrupted", AccessOutcome.Unavailable,
+                cancellation, discardLauncherArtifact: true) is { } artifact)
+            await SendDecisionAsync(id, artifact.Domain, publish: false, artifact.ExpiresAt, cancellation);
+    }
+
     public async Task RevertAsync(Guid id, string reason, CancellationToken cancellation, AccessOutcome failure = AccessOutcome.Unavailable)
     {
         if (await database.BeginUploadRevertAsync(id, reason, failure, cancellation) is { } upload)

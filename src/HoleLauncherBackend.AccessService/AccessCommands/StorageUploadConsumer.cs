@@ -8,7 +8,7 @@ internal sealed class StorageUploadConsumer(AccessOperation operation) : IAccess
 
     public Task ConsumeAsync(AccessCommandContext context, CancellationToken cancellation)
     {
-        if (context.Request.StorageDomain is not { } domain || !StorageAddress.IsPublicDomain(domain))
+        if (context.Request.StorageDomain is not { } domain || (!StorageAddress.IsPublicDomain(domain) || domain == StorageAddress.LauncherDomain))
             return context.ReplyAsync(AccessOutcome.InvalidRequest, cancellation);
 
         var permissions = context.Account.Permissions;

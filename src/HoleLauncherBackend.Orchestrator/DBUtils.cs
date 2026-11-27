@@ -93,18 +93,21 @@ internal sealed class DBUtils(NpgsqlDataSource database)
     }
 
     public async Task<(string Domain, DateTimeOffset ExpiresAt)?> BeginUploadRevertAsync(
-        Guid id, string reason, AccessOutcome failure, CancellationToken cancellation)
+        Guid id, string reason, AccessOutcome failure, CancellationToken cancellation, bool discardLauncherArtifact = false)
     {
         await using var command = Create("""
             UPDATE operations SET state = $2,
+                finished_at = CASE WHEN state = $10 THEN NULL ELSE finished_at END,
                 error_message = COALESCE(error_message,
                     CASE WHEN COALESCE(step_deadline, transfer_deadline, expires_at) <= now() THEN $6 ELSE $3 END),
-                outcome = COALESCE(outcome,
-                    CASE WHEN COALESCE(step_deadline, transfer_deadline, expires_at) <= now() THEN $7 ELSE $5 END)
-            WHERE id = $1 AND storage_domain IS NOT NULL AND state IN ($4, $2)
+                outcome = CASE WHEN state = $10 THEN $5 ELSE COALESCE(outcome,
+                    CASE WHEN COALESCE(step_deadline, transfer_deadline, expires_at) <= now() THEN $7 ELSE $5 END) END
+            WHERE id = $1 AND storage_domain IS NOT NULL AND (
+                NOT $8 AND state IN ($4, $2)
+                OR $8 AND storage_domain = $9 AND state IN ($4, $2, $10))
             RETURNING storage_domain, expires_at
             """, id, (int)OperationState.Reverting, reason, (int)OperationState.Pending, (int)failure,
-            "error.storage_timeout", (int)AccessOutcome.Timeout);
+            "error.storage_timeout", (int)AccessOutcome.Timeout, discardLauncherArtifact, StorageAddress.LauncherDomain, (int)OperationState.Done);
         await using var reader = await command.ExecuteReaderAsync(cancellation);
         return await reader.ReadAsync(cancellation)
             ? (reader.GetString(0), reader.GetFieldValue<DateTimeOffset>(1))

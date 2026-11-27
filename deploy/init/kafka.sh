@@ -67,3 +67,7 @@ acl --allow-principal User:storage --operation Read --topic "$storage_decisions"
 acl --allow-principal User:storage --operation Read --group holelauncher-storage-v1
 acl --allow-principal User:storage --operation Write --topic "$storage_results"
 acl --allow-principal User:storage --operation IdempotentWrite --cluster
+acl --allow-principal User:launcher --operation Write --topic "$operations"
+acl --allow-principal User:launcher --operation Write --topic "$storage_transfers"
+acl --allow-principal User:launcher --operation Read --topic "$replies"
+acl --allow-principal User:launcher --operation IdempotentWrite --cluster

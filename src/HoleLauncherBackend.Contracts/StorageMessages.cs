@@ -5,6 +5,7 @@ namespace HoleLauncherBackend.Contracts;
 public static class StorageAddress
 {
     public const string UserDataDomain = "userdata";
+    public const string LauncherDomain = "launcher";
     private const string UserDataPrefix = "userdata-";
     public const int MaxOfferImageBytes = 1024 * 1024;
     public const long MaxUploadBytes = 1024L * 1024 * 1024;

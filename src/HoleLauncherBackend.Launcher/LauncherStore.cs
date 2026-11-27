@@ -4,19 +4,21 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using HoleLauncherBackend.Contracts;
 
 namespace HoleLauncherBackend.Launcher;
 
-internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfiguration configuration)
+internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfiguration configuration, LauncherStorage storage)
 {
     private const long MaxFileSize = 160L * 1024 * 1024;
     private const int MaxAddressBytes = 2048;
     private const int MaxRedirects = 4;
     private static readonly TimeSpan ImportTimeout = TimeSpan.FromMinutes(5);
     private static ReadOnlySpan<byte> Footer => "HOLELAUNCHER-BACKEND-V1"u8;
+    private static ReadOnlySpan<byte> FingerprintMarker => "HOLELAUNCHER-SHA512-V1"u8;
     private readonly string root = configuration["Launcher:Root"] ?? "/data/launcher";
     private readonly SemaphoreSlim import = new(1, 1);
     private readonly object published = new();
@@ -29,18 +31,18 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
         get { lock (published) return ReadPublished()?.Release; }
     }
 
-    public Stream? Open(bool linux)
+    public (Guid FileId, string Fingerprint)? FindArtifact(bool linux)
     {
         lock (published)
         {
             if (ReadPublished() is not { } state)
                 return null;
-            return new FileStream(Path.Combine(root, state.Id.ToString("N"), linux ? ArchiveName : WindowsName),
-                FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            var artifact = linux ? state.Linux : state.Windows;
+            return (artifact.Id, artifact.Fingerprint);
         }
     }
 
-    public async Task<LauncherRelease?> ImportAsync(string input, CancellationToken cancellation)
+    public async Task<LauncherRelease?> ImportAsync(string input, Guid uploader, CancellationToken cancellation)
     {
         var repository = input?.Trim().TrimEnd('/') ?? "";
         const string github = "https://github.com/";
@@ -48,7 +50,7 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
             repository = repository[github.Length..];
         if (repository.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
             repository = repository[..^4];
-        if (!RepositoryPattern().IsMatch(repository))
+        if (uploader == Guid.Empty || !RepositoryPattern().IsMatch(repository))
             return null;
 
         var address = PublicAddress(configuration["Launcher:PublicOrigin"]);
@@ -58,6 +60,9 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
         await import.WaitAsync(token);
         try
         {
+            if (!await CleanupPendingAsync())
+                throw new IOException("Previous launcher publication cleanup is pending.");
+
             using var http = clients.CreateClient("github");
             var githubToken = configuration["Launcher:GitHubToken"];
             using var lookup = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{repository}/releases/latest");
@@ -69,9 +74,10 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
             var windows = FindAsset(release, "HoleLauncher-win-x64.exe");
             var linux = FindAsset(release, ArchiveName);
             var id = Guid.NewGuid();
-            var folder = Path.Combine(root, id.ToString("N"));
-            Directory.CreateDirectory(folder);
-            var committed = false;
+            var folder = Directory.CreateTempSubdirectory("holelauncher-").FullName;
+            var windowsId = Guid.NewGuid();
+            var linuxId = Guid.NewGuid();
+            Directory.CreateDirectory(root);
             var marker = Path.Combine(root, id.ToString("N") + ".json");
             try
             {
@@ -80,38 +86,72 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
                 await DownloadAsync(http, repository, linux, githubToken, source, token);
                 await UnpackLinuxAsync(source, Path.Combine(folder, LinuxName), token);
                 File.Delete(source);
-                await StampAsync(Path.Combine(folder, WindowsName), "MZ"u8.ToArray(), address, token);
-                await StampAsync(Path.Combine(folder, LinuxName), new byte[] { 127, 69, 76, 70 }, address, token);
+                var windowsPath = Path.Combine(folder, WindowsName);
+                var windowsHash = await StampAsync(windowsPath, "MZ"u8.ToArray(), address, token);
+                var linuxHash = await StampAsync(Path.Combine(folder, LinuxName), new byte[] { 127, 69, 76, 70 }, address, token);
                 await PackLinuxAsync(folder, token);
 
-                var state = new Publication(id, new LauncherRelease(repository, release.Tag));
+                var state = new Publication(new LauncherRelease(repository, release.Tag),
+                    new Artifact(windowsId, windowsHash), new Artifact(linuxId, linuxHash));
+                var pending = new PendingPublication(state, ReadPublished());
+                await File.WriteAllTextAsync(marker, JsonSerializer.Serialize(pending), token);
+                File.Move(marker, PendingPath);
+
+                await Task.WhenAll(storage.UploadAsync(windowsId, uploader, windowsPath, token),
+                    storage.UploadAsync(linuxId, uploader, Path.Combine(folder, ArchiveName), token));
                 await File.WriteAllTextAsync(marker, JsonSerializer.Serialize(state), token);
-                Publication? previous;
                 lock (published)
                 {
                     token.ThrowIfCancellationRequested();
-                    previous = ReadPublished();
                     File.Move(marker, StatePath, overwrite: true);
-                    committed = true;
                 }
-                if (previous is not null)
-                    Clear(Path.Combine(root, previous.Id.ToString("N")));
                 return state.Release;
             }
             finally
             {
-                File.Delete(marker);
-                if (!committed)
+                try { await CleanupPendingAsync(); }
+                finally
+                {
+                    File.Delete(marker);
                     Clear(folder);
+                }
             }
         }
         finally { import.Release(); }
     }
 
     private string StatePath => Path.Combine(root, "current.json");
+    private string PendingPath => Path.Combine(root, "pending.json");
 
-    private Publication? ReadPublished() => File.Exists(StatePath)
-        ? JsonSerializer.Deserialize<Publication>(File.ReadAllText(StatePath)) : null;
+    public async Task RecoverAsync(CancellationToken cancellation)
+    {
+        await import.WaitAsync(cancellation);
+        try { await CleanupPendingAsync(); }
+        finally { import.Release(); }
+    }
+
+    private async Task<bool> CleanupPendingAsync()
+    {
+        if (!File.Exists(PendingPath))
+            return true;
+
+        var pending = JsonSerializer.Deserialize<PendingPublication>(await File.ReadAllTextAsync(PendingPath))
+            ?? throw new InvalidDataException("Missing pending launcher publication.");
+        var obsolete = ReadPublished()?.Windows.Id == pending.Next.Windows.Id ? pending.Previous : pending.Next;
+        if (obsolete is not null)
+        {
+            var discarded = await Task.WhenAll(storage.DiscardAsync(obsolete.Windows.Id), storage.DiscardAsync(obsolete.Linux.Id));
+            if (!discarded.All(sent => sent))
+                return false;
+        }
+
+        File.Delete(PendingPath);
+        return true;
+    }
+
+    private Publication? ReadPublished() => File.Exists(StatePath) &&
+        JsonSerializer.Deserialize<Publication>(File.ReadAllText(StatePath)) is { Windows: not null, Linux: not null } state
+            ? state : null;
 
     private static byte[] PublicAddress(string? origin)
     {
@@ -210,7 +250,7 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
         await tar.WriteEntryAsync(entry, token);
     }
 
-    private static async Task StampAsync(string path, byte[] format, byte[] address, CancellationToken token)
+    private static async Task<string> StampAsync(string path, byte[] format, byte[] address, CancellationToken token)
     {
         await using var file = File.Open(path, FileMode.Open, FileAccess.ReadWrite);
         var signature = new byte[format.Length];
@@ -221,9 +261,18 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
         var footer = new byte[sizeof(int) + Footer.Length];
         BinaryPrimitives.WriteInt32LittleEndian(footer, address.Length);
         Footer.CopyTo(footer.AsSpan(sizeof(int)));
-        file.Seek(0, SeekOrigin.End);
+        var executableLength = file.Seek(0, SeekOrigin.End);
         await file.WriteAsync(address, token);
         await file.WriteAsync(footer, token);
+        file.Position = 0;
+        var fingerprint = await SHA512.HashDataAsync(file, token);
+
+        file.Position = executableLength;
+        await file.WriteAsync(FingerprintMarker.ToArray(), token);
+        await file.WriteAsync(fingerprint, token);
+        await file.WriteAsync(address, token);
+        await file.WriteAsync(footer, token);
+        return Convert.ToHexStringLower(fingerprint);
     }
 
     private static void Clear(string folder)
@@ -236,7 +285,9 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
     [GeneratedRegex(@"\A[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}\z", RegexOptions.CultureInvariant)]
     private static partial Regex RepositoryPattern();
 
-    private sealed record Publication(Guid Id, LauncherRelease Release);
+    private sealed record PendingPublication(Publication Next, Publication? Previous);
+    private sealed record Artifact(Guid Id, string Fingerprint);
+    private sealed record Publication(LauncherRelease Release, Artifact Windows, Artifact Linux);
     private sealed record GitRelease([property: System.Text.Json.Serialization.JsonPropertyName("tag_name")] string Tag, Asset[] Assets);
     private sealed record Asset(long Id, string Name, long Size,
         [property: System.Text.Json.Serialization.JsonPropertyName("browser_download_url")] string Download);

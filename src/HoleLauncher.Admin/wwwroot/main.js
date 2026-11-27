@@ -89,6 +89,15 @@ register.addEventListener("click", async () => {
         register.disabled = false;
     }
 });
+function registerRepositoryFind(active, open) {
+    document.addEventListener("keydown", event => {
+        if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "f" || !active()) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        open();
+    }, true);
+}
+
 function registerBrowserPaste(focused, paste) {
     document.addEventListener("keydown", event => {
         if (!event.altKey && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && focused()) {
@@ -187,7 +196,7 @@ async function downloadRepositoryArchive(path, fallback) {
 try {
     const { dotnet } = await import("./_framework/dotnet.js");
     const runtime = await dotnet.create();
-    runtime.setModuleImports("admin", { getOrigin: () => window.location.origin, showLogin, translate, registerBrowserPaste, readRepositoryFile, copyRepositoryBytes, createRepositoryFile, chooseRepositoryFile, takeRepositoryDrop, uploadRepositoryFile, downloadRepositoryArchive, getLanguage: () => language, setLanguage });
+    runtime.setModuleImports("admin", { getOrigin: () => window.location.origin, showLogin, translate, registerRepositoryFind, registerBrowserPaste, readRepositoryFile, copyRepositoryBytes, createRepositoryFile, chooseRepositoryFile, takeRepositoryDrop, uploadRepositoryFile, downloadRepositoryArchive, getLanguage: () => language, setLanguage });
     await runtime.runMain(runtime.getConfig().mainAssemblyName, []);
     startup.remove();
 } catch (error) {

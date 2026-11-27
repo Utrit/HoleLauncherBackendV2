@@ -488,3 +488,4 @@ $RECYCLE.BIN/
 /artifacts/
 
 compose.watchtower.yaml
+/src.zip

@@ -216,7 +216,7 @@ public sealed partial class AccountView
                         args.GetCurrentPoint(leaf).Properties.PointerUpdateKind != PointerUpdateKind.LeftButtonPressed)
                         return;
 
-                    treeDragFile = item;
+                    treeDragFile = leaf.Tag as RepositoryTreeFile;
                     treeDragPointer = args.Pointer;
                     treeDragOrigin = args.GetPosition(RepositoryFileTree);
                 }, RoutingStrategies.Tunnel);

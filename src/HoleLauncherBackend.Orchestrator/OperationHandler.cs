@@ -3,10 +3,16 @@ using HoleLauncherBackend.Messaging;
 
 namespace HoleLauncherBackend.Orchestrator;
 
-internal sealed class OperationHandler(KafkaBus bus, OperationStore operations, DBUtils database, GameNameOperations gameNames, GameTextureOperations gameTextures)
+internal sealed class OperationHandler(KafkaBus bus, OperationStore operations, DBUtils database, GameNameOperations gameNames, GameTextureOperations gameTextures, StorageUploadHandler uploads)
 {
     public async Task HandleAsync(OrchestrationMessage message, CancellationToken cancellation)
     {
+        if (message.DiscardLauncherArtifact)
+        {
+            await uploads.DiscardLauncherArtifactAsync(message.OperationId, cancellation);
+            return;
+        }
+
         if (message.Result is { } result)
         {
             if (message.ProvisionGameAccount)

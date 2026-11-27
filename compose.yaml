@@ -123,10 +123,18 @@ services:
     image: ${LAUNCHER_IMAGE:-holelauncherbackend-launcher:local}
     environment:
       Launcher__Root: /data/launcher
+      Storage__Url: http://storage:8080/
+      Kafka__BootstrapServers: kafka:9092
+      Kafka__Username: launcher
+      Kafka__Password: ${KAFKA_LAUNCHER_PASSWORD:?Set KAFKA_LAUNCHER_PASSWORD in .env}
       Launcher__GitHubToken: ${LAUNCHER_GITHUB_TOKEN:-}
       Launcher__PublicOrigin: ${PUBLIC_BASE_URL:-http://localhost:${ADMIN_PORT:-8080}}
     volumes:
       - launcher-data:/data/launcher
+    networks: [default, storage_api, kafka_bus]
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
 
   drasl:
     profiles: [drasl]
@@ -191,7 +199,8 @@ services:
         user_api="${KAFKA_API_PASSWORD}"
         user_access="${KAFKA_ACCESS_PASSWORD}"
         user_orchestrator="${KAFKA_ORCHESTRATOR_PASSWORD}"
-        user_storage="${KAFKA_STORAGE_PASSWORD}";
+        user_storage="${KAFKA_STORAGE_PASSWORD}"
+        user_launcher="${KAFKA_LAUNCHER_PASSWORD}";
     volumes:
       - kafka-data:/var/lib/kafka/data
     networks: [kafka_bus]

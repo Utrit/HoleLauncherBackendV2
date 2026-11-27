@@ -11,6 +11,9 @@ internal sealed class DeleteEndpoint : IStorageEndpoint
         if (!StorageAddress.IsValidDomain(domain) || !StorageAddress.TryParseFileId(fileId, out var id))
             return Results.BadRequest();
 
+        if (domain == StorageAddress.LauncherDomain)
+            return Results.Conflict();
+
         storage.Delete(domain, id);
         return Results.NoContent();
     }

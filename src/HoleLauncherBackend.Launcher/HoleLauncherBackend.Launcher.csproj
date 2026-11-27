@@ -6,5 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HoleLauncherBackend.Contracts/HoleLauncherBackend.Contracts.csproj" />
+    <ProjectReference Include="../HoleLauncherBackend.Messaging/HoleLauncherBackend.Messaging.csproj" />
   </ItemGroup>
 </Project>

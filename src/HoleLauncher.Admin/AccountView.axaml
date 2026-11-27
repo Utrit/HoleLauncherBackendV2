@@ -174,12 +174,26 @@
                   </StackPanel>
                 </TabItem.Header>
                 <StackPanel Spacing="8">
-                  <StackPanel x:Name="RepositoryFilePager" Orientation="Horizontal" Spacing="8" IsVisible="False">
-                    <Button x:Name="RepositoryPreviousFiles" Content="‹" Click="OnPreviousRepositoryFiles" />
-                    <TextBlock x:Name="RepositoryFilePage" VerticalAlignment="Center" />
-                    <Button x:Name="RepositoryNextFiles" Content="›" Click="OnNextRepositoryFiles" />
-                  </StackPanel>
-                  <StackPanel x:Name="RepositoryFiles" Spacing="8" />
+                  <Grid x:Name="RepositoryFindBar" IsVisible="False" ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="8">
+                    <TextBox x:Name="RepositoryFindText" Watermark="{local:Loc repository.find_files}"
+                             TextChanged="OnRepositoryFindChanged" KeyDown="OnRepositoryFindKeyDown" />
+                    <TextBlock Grid.Column="1" x:Name="RepositoryFindCount" VerticalAlignment="Center" />
+                    <Button Grid.Column="2" Content="↑" ToolTip.Tip="{local:Loc repository.find_previous}" Click="OnPreviousRepositoryMatch" />
+                    <Button Grid.Column="3" Content="↓" ToolTip.Tip="{local:Loc repository.find_next}" Click="OnNextRepositoryMatch" />
+                    <Button Grid.Column="4" Content="×" ToolTip.Tip="{local:Loc repository.find_close}" Click="OnCloseRepositoryFind" />
+                  </Grid>
+                  <ListBox x:Name="RepositoryFiles" MaxHeight="560" Background="Transparent"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemsPanel>
+                      <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.Styles>
+                      <Style Selector="ListBoxItem">
+                        <Setter Property="Padding" Value="0,0,0,8" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                      </Style>
+                    </ListBox.Styles>
+                  </ListBox>
                   <StackPanel x:Name="RepositoryTreePanel" IsVisible="False" Spacing="8">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                       <TextBox x:Name="RepositoryNewFolder" Watermark="{local:Loc repository.folder_name}" />
