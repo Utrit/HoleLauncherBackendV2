@@ -12,12 +12,15 @@ public sealed partial class AccountView
         RepositoryPanel.IsEnabled && RepositoryModQuery.IsFocused ? RepositoryModQuery :
         OfferPanel.IsEnabled && OfferQuery.IsFocused ? OfferQuery : null;
 
-    private async void PasteModrinthSearch(string clipboard)
+    private TextBox? FocusedPasteInput() =>
+        TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox { IsReadOnly: false } input ? input : null;
+
+    private async void PasteText(string clipboard)
     {
-        if (FocusedModrinthSearch() is not { } input)
+        if (FocusedPasteInput() is not { } input)
             return;
 
-        if (ModrinthProjectFromLink(clipboard) is not null)
+        if (input == FocusedModrinthSearch() && ModrinthProjectFromLink(clipboard) is not null)
         {
             input.Text = clipboard.Trim();
             input.CaretIndex = input.Text.Length;
@@ -30,10 +33,9 @@ public sealed partial class AccountView
 
         var text = input.Text ?? "";
         var start = Math.Clamp(Math.Min(input.SelectionStart, input.SelectionEnd), 0, text.Length);
-        var end = Math.Clamp(Math.Max(input.SelectionStart, input.SelectionEnd), start, text.Length);
-        var pasted = clipboard.Replace("\r", "").Replace("\n", " ");
-        input.Text = text[..start] + pasted + text[end..];
-        input.CaretIndex = input.SelectionStart = input.SelectionEnd = start + pasted.Length;
+        var pasted = input.AcceptsReturn ? clipboard : clipboard.Replace("\r", "").Replace("\n", " ");
+        input.SelectedText = pasted;
+        input.CaretIndex = input.SelectionStart = input.SelectionEnd = Math.Min(start + pasted.Length, input.Text?.Length ?? 0);
     }
 
     private static string? ModrinthProjectFromLink(string value)

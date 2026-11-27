@@ -33,6 +33,7 @@ public sealed partial class AccountView
         if (gameAccountId != account?.AccountId)
         {
             ClearPreviewTextures();
+            RemoveSkinButton.IsVisible = RemoveCapeButton.IsVisible = false;
             GameNameInput.Text = null;
             GameNameText.Text = null;
             GameNameHistoryText.Text = null;
@@ -66,6 +67,8 @@ public sealed partial class AccountView
                 : profile.GameName ?? T("game.history_empty");
             UploadSkinButton.Content = profile.SkinFileId is null ? T("game.upload_skin") : T("game.replace_skin");
             UploadCapeButton.Content = profile.CapeFileId is null ? T("game.upload_cape") : T("game.replace_cape");
+            RemoveSkinButton.IsVisible = UploadSkinButton.IsVisible && profile.SkinFileId is not null;
+            RemoveCapeButton.IsVisible = UploadCapeButton.IsVisible && profile.CapeFileId is not null;
             savedSkinId = profile.SkinFileId;
             savedSkinModel = profile.SkinModel;
             RestoreSkinModel();
@@ -142,11 +145,25 @@ public sealed partial class AccountView
 
     private async void OnUploadCape(object? sender, RoutedEventArgs e) => await PickTextureAsync("cape");
 
-    private Task PickTextureAsync(string texture) => RunGameProfileActionAsync(async report =>
+    private async void OnRemoveSkin(object? sender, RoutedEventArgs e) => await RemoveTextureAsync("skin");
+
+    private async void OnRemoveCape(object? sender, RoutedEventArgs e) => await RemoveTextureAsync("cape");
+
+    private Task RemoveTextureAsync(string texture) => RunTextureActionAsync(texture, async report =>
+    {
+        using var response = await Api.DeleteAsync($"{GameProfilePath}/{texture}");
+        if (!await WaitForMutationAsync(response, T("game.texture_failed"), report))
+            return;
+        report(T(texture == "skin" ? "game.skin_removed" : "game.cape_removed"));
+        await LoadGameProfileAsync();
+    });
+
+    private async Task PickTextureAsync(string texture)
     {
         var picker = TopLevel.GetTopLevel(this)?.StorageProvider;
         if (picker is null)
             return;
+        var account = gameAccountId;
         var files = await picker.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = texture == "skin" ? T("game.choose_skin") : T("game.choose_cape"),
@@ -156,6 +173,12 @@ public sealed partial class AccountView
             return;
 
         using var file = files[0];
+        if (gameAccountId == account && account is not null)
+            await RunTextureActionAsync(texture, report => UploadTextureAsync(texture, file, report));
+    }
+
+    private async Task UploadTextureAsync(string texture, IStorageFile file, Action<string> report)
+    {
         await using var png = await file.OpenReadAsync();
         using var content = new StreamContent(png);
         content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
@@ -201,7 +224,12 @@ public sealed partial class AccountView
             return;
         report(texture == "skin" ? T("game.skin_saved") : T("game.cape_saved"));
         await LoadGameProfileAsync();
-    });
+    }
+
+    private Task RunTextureActionAsync(string texture, Func<Action<string>, Task> action) =>
+        texture == "skin"
+            ? RunGameProfileActionAsync(action, UploadSkinButton, RemoveSkinButton, SlimSkinSwitch)
+            : RunGameProfileActionAsync(action, UploadCapeButton, RemoveCapeButton);
 
     private async void OnSkinModelSelected(object? sender, RoutedEventArgs e)
     {
@@ -213,7 +241,7 @@ public sealed partial class AccountView
         if (savedSkinId is not { } id || selected == savedSkinModel)
             return;
 
-        await RunGameProfileActionAsync(async report =>
+        await RunTextureActionAsync("skin", async report =>
         {
             try
             {
@@ -280,10 +308,15 @@ public sealed partial class AccountView
         };
     }
 
-    private async Task RunGameProfileActionAsync(Func<Action<string>, Task> action)
+    private async Task RunGameProfileActionAsync(Func<Action<string>, Task> action, params Control[] controls)
     {
+        if (controls.Length == 0)
+            controls = [GameNameEditor];
+        if (controls.Any(control => !control.IsEnabled))
+            return;
         var report = CreateGameNotice();
-        GameProfilePanel.IsEnabled = false;
+        foreach (var control in controls)
+            control.IsEnabled = false;
         try
         {
             await action(report);
@@ -294,7 +327,8 @@ public sealed partial class AccountView
         }
         finally
         {
-            GameProfilePanel.IsEnabled = true;
+            foreach (var control in controls)
+                control.IsEnabled = true;
         }
     }
 }

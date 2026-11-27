@@ -30,8 +30,8 @@ internal sealed class ModrinthClient(HttpClient client, Microsoft.Extensions.Cac
             return await GetAsync<Project>(id, $"project/{id}", ct);
         });
 
-    public async Task<string?> VersionProjectAsync(string id, CancellationToken ct) =>
-        (await GetAsync<Version>(id, $"version/{id}", ct))?.ProjectId;
+    public Task<Version?> VersionInfoAsync(string id, CancellationToken ct) =>
+        GetAsync<Version>(id, $"version/{id}", ct);
 
     private async Task<T?> GetAsync<T>(string id, string path, CancellationToken ct) where T : class
     {

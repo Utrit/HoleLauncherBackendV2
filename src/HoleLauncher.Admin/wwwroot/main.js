@@ -89,7 +89,7 @@ register.addEventListener("click", async () => {
         register.disabled = false;
     }
 });
-function registerModrinthPaste(focused, paste) {
+function registerBrowserPaste(focused, paste) {
     document.addEventListener("keydown", event => {
         if (!event.altKey && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && focused()) {
             // Keep the browser paste action and prevent Avalonia from reading the clipboard separately.
@@ -187,7 +187,7 @@ async function downloadRepositoryArchive(path, fallback) {
 try {
     const { dotnet } = await import("./_framework/dotnet.js");
     const runtime = await dotnet.create();
-    runtime.setModuleImports("admin", { getOrigin: () => window.location.origin, showLogin, translate, registerModrinthPaste, readRepositoryFile, copyRepositoryBytes, createRepositoryFile, chooseRepositoryFile, takeRepositoryDrop, uploadRepositoryFile, downloadRepositoryArchive, getLanguage: () => language, setLanguage });
+    runtime.setModuleImports("admin", { getOrigin: () => window.location.origin, showLogin, translate, registerBrowserPaste, readRepositoryFile, copyRepositoryBytes, createRepositoryFile, chooseRepositoryFile, takeRepositoryDrop, uploadRepositoryFile, downloadRepositoryArchive, getLanguage: () => language, setLanguage });
     await runtime.runMain(runtime.getConfig().mainAssemblyName, []);
     startup.remove();
 } catch (error) {

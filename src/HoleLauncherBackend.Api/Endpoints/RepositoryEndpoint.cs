@@ -28,6 +28,7 @@ internal sealed class RepositoryEndpoint(AccountManagementProxy accounts, IHttpC
         group.MapGet("/game-versions", (Delegate)((HttpContext context) => ForwardAsync(context, "game-versions", offerAllowed: true)));
         group.MapPut("/resolve-mods", (Delegate)((HttpContext context) => ForwardAsync(context, "resolve-mods")));
         group.MapPut("/builds/{id:guid}/build", (Guid id, HttpContext context) => ForwardAsync(context, $"builds/{id:D}/build"));
+        group.MapPut("/builds/{id:guid}/build-stream", (Guid id, HttpContext context) => ForwardAsync(context, $"builds/{id:D}/build-stream", archive: true));
         group.MapPut("/builds/{id:guid}/channel", (Guid id, HttpContext context) => ForwardAsync(context, $"builds/{id:D}/channel"));
         group.MapGet("/mod-icon", ModIconAsync);
         group.MapGet("/builds/{id:guid}/manifest", (Guid id, HttpContext context) =>
@@ -161,6 +162,21 @@ internal sealed class RepositoryEndpoint(AccountManagementProxy accounts, IHttpC
             if (path.EndsWith("/build", StringComparison.Ordinal) && response.Content.Headers.ContentType?.MediaType == "application/json")
                 return Results.Json(await response.Content.ReadFromJsonAsync<RepositoryBuildError>(ct), statusCode: (int)response.StatusCode);
             return Results.StatusCode((int)response.StatusCode);
+        }
+        if (path.EndsWith("/build-stream", StringComparison.Ordinal))
+        {
+            context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+            var stream = await response.Content.ReadAsStreamAsync(ct);
+            return Results.Stream(async output =>
+            {
+                using var reader = new StreamReader(stream);
+                await using var writer = new StreamWriter(output, leaveOpen: true);
+                while (await reader.ReadLineAsync(ct) is { } line)
+                {
+                    await writer.WriteLineAsync(line.AsMemory(), ct);
+                    await writer.FlushAsync(ct);
+                }
+            }, "application/x-ndjson");
         }
         if (archive)
         {

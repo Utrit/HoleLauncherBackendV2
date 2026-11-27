@@ -44,6 +44,7 @@ internal static class Setup
         app.MapGet("/builds/{id:guid}/download", DownloadAsync);
         app.MapGet("/builds/{id:guid}/manifest", DownloadManifest);
         app.MapPut("/builds/{id:guid}/build", BuildAsync);
+        app.MapPut("/builds/{id:guid}/build-stream", RepositoryBuildStream.WriteAsync);
         app.MapDelete("/builds/{id:guid}/version", (Guid id, string version, CatalogStore store, CancellationToken ct) =>
             store.RemoveVersionAsync(id, version, ct));
         app.MapPut("/builds/{id:guid}/channel", (Guid id, RepositoryChannel channel, CatalogStore store, CancellationToken ct) =>
@@ -165,8 +166,13 @@ internal static class Setup
         }
     }
 
-    private static async Task<IResult> BuildAsync(Guid id, RepositoryDraft draft,
-        ManifestBuilder builder, CatalogStore store, LoaderCatalog loaders, ModrinthClient mods, CancellationToken ct)
+    private static Task<IResult> BuildAsync(Guid id, RepositoryDraft draft,
+        ManifestBuilder builder, CatalogStore store, LoaderCatalog loaders, ModrinthClient mods, CancellationToken ct) =>
+        BuildResultAsync(id, draft, builder, store, loaders, mods, ct, null);
+
+    internal static async Task<IResult> BuildResultAsync(Guid id, RepositoryDraft draft,
+        ManifestBuilder builder, CatalogStore store, LoaderCatalog loaders, ModrinthClient mods, CancellationToken ct,
+        Action<RepositoryBuildProgress>? progress)
     {
         try
         {
@@ -180,12 +186,12 @@ internal static class Setup
                 return Results.BadRequest(new RepositoryBuildError("build.loader_mismatch",
                     [draft.Minecraft ?? "", draft.Loader ?? "", draft.LoaderVersion ?? ""]));
 
-            var manifest = await builder.BuildAsync(id, draft, ct);
+            var manifest = await builder.BuildAsync(id, draft, ct, progress);
             return await store.SaveVersionAsync(manifest, ct);
         }
         catch (BuildRejectedException error)
         {
-            return Results.BadRequest(error.Error);
+            return progress is null ? Results.BadRequest(error.Error) : Results.BadRequest(error.Errors);
         }
         catch (HttpRequestException)
         {

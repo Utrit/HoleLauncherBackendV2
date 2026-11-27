@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using HoleLauncherBackend.Contracts;
 
 namespace HoleLauncherBackend.Repository;
@@ -7,7 +8,8 @@ internal sealed class ModResolver(ModrinthClient client)
     private const int MaxAttempts = 4_000;
     private const int MaxProjects = 256;
 
-    public async Task<RepositoryArtifact[]?> ResolveAsync(RepositoryModResolution request, CancellationToken ct, Action<string, string[]>? report = null)
+    public async Task<RepositoryArtifact[]?> ResolveAsync(RepositoryModResolution request, CancellationToken ct, Action<string, string[]>? report = null,
+        ResolutionCache? shared = null, Action<string>? resolvingDependency = null)
     {
         if (string.IsNullOrWhiteSpace(request.Minecraft) || string.IsNullOrWhiteSpace(request.Loader) || request.Files is null || request.Files.Length > MaxProjects)
             return null;
@@ -20,8 +22,7 @@ internal sealed class ModResolver(ModrinthClient client)
                 return null;
         }
 
-        var versions = new Dictionary<string, ModrinthClient.Version[]>();
-        var versionProjects = new Dictionary<string, string?>();
+        var cache = shared ?? CreateCache(request.Minecraft, request.Loader, ct);
         var required = roots.Select(root => new Requirement(root.Key, root.Value.VersionLock))
             .OrderByDescending(root => root.Version is not null).ToArray();
         var attempts = 0;
@@ -51,7 +52,7 @@ internal sealed class ModResolver(ModrinthClient client)
                 return null;
 
             var root = roots.GetValueOrDefault(project);
-            var metadata = await client.ProjectInfoAsync(project, ct);
+            var metadata = await cache.ProjectAsync(project);
             if (metadata is null)
                 return null;
             var card = root?.Card ?? new(metadata.Title, metadata.Description, metadata.IconUrl);
@@ -64,7 +65,11 @@ internal sealed class ModResolver(ModrinthClient client)
         }
         return [.. artifacts];
 
-        string ProjectLabel(string project) => roots.GetValueOrDefault(project)?.Card.Title ?? project;
+        async Task<string> ProjectLabelAsync(string project) =>
+            roots.GetValueOrDefault(project)?.Card.Title ?? (await cache.ProjectAsync(project))?.Title ?? project;
+
+        async Task<string> VersionLabelAsync(string? id) =>
+            id is null ? "—" : (await cache.VersionAsync(id))?.VersionNumber ?? id;
 
         void MarkMandatory(string project)
         {
@@ -89,23 +94,22 @@ internal sealed class ModResolver(ModrinthClient client)
             {
                 if (next.Version is null || already.Version.Id == next.Version)
                     return await SolveAsync(rest, chosen);
-                Fail("build.dependency_version_conflict", ProjectLabel(next.Project), next.Version, already.Version.Id, next.RequiredBy ?? "");
+                if (report is not null && selectedDepth >= deepestFailure)
+                    Fail("build.dependency_version_conflict", await ProjectLabelAsync(next.Project),
+                        await VersionLabelAsync(next.Version), already.Version.VersionNumber, next.RequiredBy ?? "—");
                 return null;
             }
 
             if (chosen.Count == MaxProjects)
                 return null;
 
-            if (!versions.TryGetValue(next.Project, out var candidates))
-            {
-                candidates = await client.VersionsAsync(next.Project, request.Minecraft, request.Loader, ct) ?? [];
-                versions.Add(next.Project, candidates);
-            }
+            var candidates = await cache.VersionsAsync(next.Project) ?? [];
 
             var compatible = candidates.Where(v => next.Version is null || next.Version == v.Id)
                 .OrderByDescending(v => v.VersionType == "release").ThenByDescending(v => v.DatePublished).ToArray();
-            if (compatible.Length == 0)
-                Fail("build.mod_version_missing", ProjectLabel(next.Project), next.Version ?? "—", request.Minecraft, request.Loader, next.RequiredBy ?? "—");
+            if (compatible.Length == 0 && report is not null && selectedDepth >= deepestFailure)
+                Fail("build.mod_version_missing", await ProjectLabelAsync(next.Project), await VersionLabelAsync(next.Version),
+                    request.Minecraft, request.Loader, next.RequiredBy ?? "—");
             foreach (var candidate in compatible)
             {
                 var dependencies = new List<Requirement>();
@@ -115,11 +119,7 @@ internal sealed class ModResolver(ModrinthClient client)
                     var dependencyProject = dep.ProjectId;
                     if (dependencyProject is null && dep.VersionId is { } versionId)
                     {
-                        if (!versionProjects.TryGetValue(versionId, out dependencyProject))
-                        {
-                            dependencyProject = await client.VersionProjectAsync(versionId, ct);
-                            versionProjects.Add(versionId, dependencyProject);
-                        }
+                        dependencyProject = (await cache.VersionAsync(versionId))?.ProjectId;
                     }
 
                     if (dependencyProject is null)
@@ -127,7 +127,10 @@ internal sealed class ModResolver(ModrinthClient client)
                         valid = false;
                         break;
                     }
-                    dependencies.Add(new(dependencyProject, dep.VersionId, ProjectLabel(next.Project)));
+                    var title = await ProjectLabelAsync(next.Project);
+                    if (resolvingDependency is not null)
+                        resolvingDependency(await ProjectLabelAsync(dependencyProject));
+                    dependencies.Add(new(dependencyProject, dep.VersionId, title));
                 }
 
                 if (!valid)
@@ -141,6 +144,29 @@ internal sealed class ModResolver(ModrinthClient client)
             }
             return null;
         }
+    }
+
+    public ResolutionCache CreateCache(string minecraft, string loader, CancellationToken ct) =>
+        new(client, minecraft, loader, ct);
+
+    internal sealed class ResolutionCache(ModrinthClient client, string minecraft, string loader, CancellationToken ct)
+    {
+        private readonly ConcurrentDictionary<string, Lazy<Task<ModrinthClient.Version[]?>>> candidates = new();
+        private readonly ConcurrentDictionary<string, Lazy<Task<ModrinthClient.Project?>>> projects = new();
+        private readonly ConcurrentDictionary<string, Lazy<Task<ModrinthClient.Version?>>> versions = new();
+
+        public Task<ModrinthClient.Version[]?> VersionsAsync(string id) =>
+            Read(candidates, id, key => client.VersionsAsync(key, minecraft, loader, ct));
+
+        public Task<ModrinthClient.Project?> ProjectAsync(string id) =>
+            Read(projects, id, key => client.ProjectInfoAsync(key, ct));
+
+        public Task<ModrinthClient.Version?> VersionAsync(string id) =>
+            Read(versions, id, key => client.VersionInfoAsync(key, ct));
+
+        private static Task<T?> Read<T>(ConcurrentDictionary<string, Lazy<Task<T?>>> cache, string id,
+            Func<string, Task<T?>> load) where T : class =>
+            cache.GetOrAdd(id, key => new Lazy<Task<T?>>(() => load(key))).Value;
     }
 
     private sealed record Requirement(string Project, string? Version, string? RequiredBy = null);

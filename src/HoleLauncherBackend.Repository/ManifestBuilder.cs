@@ -1,52 +1,126 @@
+using System.Collections.Concurrent;
 using System.Net;
+using System.Text.Json;
 using HoleLauncherBackend.Contracts;
 
 namespace HoleLauncherBackend.Repository;
 
 internal sealed class ManifestBuilder(ModResolver mods, IHttpClientFactory clients)
 {
-    public async Task<RepositoryManifest> BuildAsync(Guid id, RepositoryDraft draft, CancellationToken ct)
+    private const int ParallelFiles = 6;
+
+    public async Task<RepositoryManifest> BuildAsync(Guid id, RepositoryDraft draft, CancellationToken ct,
+        Action<RepositoryBuildProgress>? progress = null)
     {
         if (id == Guid.Empty || draft.Folders is null || draft.Files is null)
             throw new BuildRejectedException("build.invalid_draft");
         if (draft.Name is not { } name || RepositoryStorage.DomainFor(name) is null)
             throw new BuildRejectedException("repository.upload_name");
 
+        var errors = new ConcurrentQueue<RepositoryBuildError>();
+        var storage = new ConcurrentDictionary<int, RepositoryArtifact>();
+        var validated = new ConcurrentDictionary<int, RepositoryFile>();
         foreach (var folder in draft.Folders)
             if (!RepositoryStorage.IsSafeFolder(folder))
-                throw new BuildRejectedException("build.invalid_folder", folder ?? "");
+                errors.Enqueue(new("build.invalid_folder", [folder ?? ""]));
 
-        foreach (var file in draft.Files)
+        var cache = mods.CreateCache(draft.Minecraft, draft.Loader, ct);
+        var seenProjects = new HashSet<string>(StringComparer.Ordinal);
+        var work = new List<(int Index, RepositoryFile File)>();
+        for (var index = 0; index < draft.Files.Length; index++)
         {
+            var file = draft.Files[index];
             if (file is null || file.Card is null || !Enum.IsDefined(file.Type) || file.Folder is null)
-                throw new BuildRejectedException("build.invalid_file", file?.Card?.Title ?? "");
-            if (file.Folder.Length != 0 && !draft.Folders.Contains(file.Folder, StringComparer.OrdinalIgnoreCase))
-                throw new BuildRejectedException("build.missing_folder", file.Card.Title, file.Folder);
+                errors.Enqueue(new("build.invalid_file", [file?.Card?.Title ?? ""]));
+            else if (file.Folder.Length != 0 && !draft.Folders.Contains(file.Folder, StringComparer.OrdinalIgnoreCase))
+                errors.Enqueue(new("build.missing_folder", [file.Card.Title, file.Folder]));
+            else if (file.ProjectId is { } project && !seenProjects.Add(project))
+                errors.Enqueue(new("build.duplicate_mod", [file.Card.Title]));
+            else
+            {
+                work.Add((index, file));
+                progress?.Invoke(new(index, file.Card.Title, "Wait"));
+            }
         }
 
-        var modFiles = draft.Files.Where(file => file.ProjectId is not null).ToArray();
-        BuildRejectedException dependencyError = new("repository.dependencies_failed");
-        var resolved = await mods.ResolveAsync(new(draft.Minecraft, draft.Loader, modFiles), ct,
-            (key, arguments) => dependencyError = new(key, arguments));
-        if (resolved is null)
-            throw dependencyError;
-
-        var files = new List<RepositoryArtifact>(resolved);
-        foreach (var file in draft.Files.Where(file => file.ProjectId is null))
+        await Parallel.ForEachAsync(work, new ParallelOptions
         {
-            files.Add(await ResolveStorageAsync(file, ct));
+            CancellationToken = ct,
+            MaxDegreeOfParallelism = ParallelFiles
+        }, async (item, token) =>
+        {
+            var (index, file) = item;
+            void Status(string state, string? dependency = null) =>
+                progress?.Invoke(new(index, file.Card.Title, state, dependency));
+            Status("LoadInfo");
+            try
+            {
+                if (file.ProjectId is null)
+                    storage[index] = await ResolveStorageAsync(file, token);
+                else
+                {
+                    RepositoryBuildError? issue = null;
+                    var dependencies = new HashSet<string>(StringComparer.Ordinal);
+                    var artifacts = await mods.ResolveAsync(new(draft.Minecraft, draft.Loader, [file]), token,
+                        (key, args) => issue = new(key, args), cache, dependency =>
+                        {
+                            if (dependencies.Add(dependency))
+                                Status("ResolveDep", dependency);
+                        });
+                    if (artifacts is null)
+                        throw new BuildRejectedException([issue ?? new("build.mod_unresolved", [file.Card.Title])]);
+                    validated[index] = file;
+                }
+                Status("Done");
+            }
+            catch (BuildRejectedException error)
+            {
+                foreach (var issue in error.Errors)
+                    errors.Enqueue(issue);
+                Status("Failed");
+            }
+            catch (Exception error) when (!token.IsCancellationRequested &&
+                error is HttpRequestException or JsonException or OperationCanceledException)
+            {
+                errors.Enqueue(new("build.file_upstream", [file.Card.Title]));
+                Status("Failed");
+            }
+        });
+
+        var resolved = Array.Empty<RepositoryArtifact>();
+        if (!validated.IsEmpty)
+        {
+            var roots = validated.OrderBy(entry => entry.Key).Select(entry => entry.Value).ToArray();
+            RepositoryBuildError? dependencyError = null;
+            try
+            {
+                var combined = await mods.ResolveAsync(new(draft.Minecraft, draft.Loader, roots), ct,
+                    (key, args) => dependencyError = new(key, args), cache);
+                if (combined is null)
+                    errors.Enqueue(dependencyError ?? new("repository.dependencies_failed", []));
+                else
+                    resolved = combined;
+            }
+            catch (Exception error) when (!ct.IsCancellationRequested &&
+                error is HttpRequestException or JsonException or OperationCanceledException)
+            {
+                errors.Enqueue(new("build.upstream", []));
+            }
         }
 
+        var files = resolved.Concat(storage.OrderBy(entry => entry.Key).Select(entry => entry.Value)).ToArray();
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var artifact in files)
         {
             if (paths.Any(path => path.StartsWith(artifact.Path + "/", StringComparison.OrdinalIgnoreCase) ||
                     artifact.Path.StartsWith(path + "/", StringComparison.OrdinalIgnoreCase)) || !paths.Add(artifact.Path) ||
-                draft.Folders.Any(folder => folder.Equals(artifact.Path, StringComparison.OrdinalIgnoreCase) ||
-                    folder.StartsWith(artifact.Path + "/", StringComparison.OrdinalIgnoreCase)))
-                throw new BuildRejectedException("build.path_conflict", artifact.Path);
+                draft.Folders.Any(folder => folder is not null && (folder.Equals(artifact.Path, StringComparison.OrdinalIgnoreCase) ||
+                    folder.StartsWith(artifact.Path + "/", StringComparison.OrdinalIgnoreCase))))
+                errors.Enqueue(new("build.path_conflict", [artifact.Path]));
         }
-        return new(id, draft, [.. files], false);
+        if (!errors.IsEmpty)
+            throw new BuildRejectedException(errors.ToArray());
+        return new(id, draft, files, false);
     }
 
     private async Task<RepositoryArtifact> ResolveStorageAsync(RepositoryFile file, CancellationToken ct)
@@ -54,17 +128,16 @@ internal sealed class ManifestBuilder(ModResolver mods, IHttpClientFactory clien
         if (file.StorageId is not { } id || id == Guid.Empty || file.StorageDomain is not { } domain ||
             domain == StorageAddress.UserDataDomain || !StorageAddress.IsPublicDomain(domain) || file.VersionLock is not null)
             throw new BuildRejectedException("build.storage_reference", file.Card.Title);
-        using var response = await clients.CreateClient("storage").GetAsync($"files/{domain}/{id:D}/metadata", ct);
+        using var client = clients.CreateClient("storage");
+        using var response = await client.GetAsync($"files/{domain}/{id:D}/metadata", ct);
         if (response.StatusCode == HttpStatusCode.NotFound)
             throw new BuildRejectedException("build.storage_missing", file.Card.Title);
         response.EnsureSuccessStatusCode();
         var metadata = await response.Content.ReadFromJsonAsync<StorageFileMetadata>(ct);
         if (metadata?.FileName is not { } name || !RepositoryStorage.IsSafePathSegment(name))
             throw new BuildRejectedException("build.storage_name", file.Card.Title);
-        return new(Join(file.Folder, name), file.Type, file.Card, RepositoryStorage.FileUrl(domain, id), metadata.Sha512, metadata.Sha512,
+        var path = file.Folder.Length == 0 ? name : $"{file.Folder}/{name}";
+        return new(path, file.Type, file.Card, RepositoryStorage.FileUrl(domain, id), metadata.Sha512, metadata.Sha512,
             null, null, [], file.ClientSide ?? true, file.ServerSide ?? true);
     }
-
-    private static string Join(string folder, string name) => folder.Length == 0 ? name : $"{folder}/{name}";
-
 }

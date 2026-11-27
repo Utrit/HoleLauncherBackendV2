@@ -186,6 +186,8 @@ public sealed partial class AccountView
 
     private void SelectRepositoryVersion(RepositoryManifest manifest)
     {
+        repositoryPage = 0;
+        RepositorySelectedMods.Children.Clear();
         pendingOfferAcceptances.Clear();
         selectedRepositoryVersion = manifest;
         var draft = manifest.Build;
@@ -203,6 +205,8 @@ public sealed partial class AccountView
 
     private void OnNewRepositoryBuild(object? sender, RoutedEventArgs e)
     {
+        repositoryPage = 0;
+        RepositorySelectedMods.Children.Clear();
         pendingOfferAcceptances.Clear();
         selectedRepositoryVersion = null;
         RepositoryName.Text = null;
@@ -293,16 +297,9 @@ public sealed partial class AccountView
         var draft = new RepositoryDraft(Value(RepositoryName), "", minecraft, loader.Loader.Id, loaderVersion,
             repositoryFolders
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), repositoryFiles, acceptedOffers);
-        using var response = await Api.PutAsJsonAsync($"{RepositoryPath}/builds/{id:D}/build", draft, AdminJsonContext.Default.RepositoryDraft);
-        if (!response.IsSuccessStatusCode && response.Content.Headers.ContentType?.MediaType == "application/json" &&
-            await response.Content.ReadFromJsonAsync(AdminJsonContext.Default.RepositoryBuildError) is { } error)
-        {
-            RepositoryMessage.Text = T(error.Key, error.Arguments);
+        var manifest = await ReadRepositoryBuildAsync(id, draft);
+        if (manifest is null)
             return;
-        }
-
-        response.EnsureSuccessStatusCode();
-        var manifest = await response.Content.ReadFromJsonAsync(AdminJsonContext.Default.RepositoryManifest) ?? throw new JsonException();
         await LoadRepositoryAsync();
         SelectRepositoryVersion(manifest);
         RepositoryMessage.Text = T("repository.built", manifest.Build.Version);
@@ -337,7 +334,10 @@ public sealed partial class AccountView
         foreach (var hit in hits)
         {
             var file = repositoryFiles.FirstOrDefault(file => file.ProjectId == hit.ProjectId);
-            var selected = new CheckBox { IsChecked = file is not null, Content = CreateCard(hit.Card) };
+            if (RepositorySelectedMods.Children.Concat(RepositoryModHits.Children)
+                .OfType<Border>().Any(border => ((SearchModRow)border.Tag!).Hit.ProjectId == hit.ProjectId))
+                continue;
+            var selected = new CheckBox { Content = CreateCard(hit.Card) };
             var type = CreateTypePicker(file?.Type ?? SelectedType());
             var card = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 8, Children = { selected, type } };
             Grid.SetColumn(type, 1);
@@ -345,13 +345,20 @@ public sealed partial class AccountView
                 BorderThickness = new Thickness(3, 0, 0, 0), Child = card, Tag = new SearchModRow(hit, selected, type) };
             border.BorderBrush = TypeBrush(PickerType(type));
             type.SelectionChanged += (_, _) => border.BorderBrush = TypeBrush(PickerType(type));
+            selected.IsCheckedChanged += (_, _) =>
+            {
+                var source = selected.IsChecked == true ? RepositoryModHits : RepositorySelectedMods;
+                var target = selected.IsChecked == true ? RepositorySelectedMods : RepositoryModHits;
+                source.Children.Remove(border);
+                target.Children.Add(border);
+            };
             RepositoryModHits.Children.Add(border);
         }
     });
 
     private void OnAddSelectedMods(object? sender, RoutedEventArgs e)
     {
-        var rows = RepositoryModHits.Children.OfType<Border>().Select(border => (SearchModRow)border.Tag!)
+        var rows = RepositorySelectedMods.Children.OfType<Border>().Select(border => (SearchModRow)border.Tag!)
             .Where(row => row.Selected.IsChecked == true).ToDictionary(row => row.Hit.ProjectId);
         var next = repositoryFiles.Select(file => file.ProjectId is { } id && rows.Remove(id, out var row)
             ? file with { Type = PickerType(row.Type) } : file).ToList();
@@ -366,6 +373,8 @@ public sealed partial class AccountView
         if (rows.Count > 0)
             AddRepositoryFolder(folder);
         repositoryFiles = [.. next];
+        foreach (var border in RepositorySelectedMods.Children.OfType<Border>().ToArray())
+            ((SearchModRow)border.Tag!).Selected.IsChecked = false;
         RenderRepositoryFiles();
     }
 
@@ -574,9 +583,25 @@ public sealed partial class AccountView
             RepositoryUploadMessage.Text = null;
     }
 
+    private const int RepositoryPageSize = 16;
+    private int repositoryPage;
+
+    private void OnPreviousRepositoryFiles(object? sender, RoutedEventArgs e)
+    {
+        repositoryPage--;
+        RenderRepositoryFiles();
+    }
+
+    private void OnNextRepositoryFiles(object? sender, RoutedEventArgs e)
+    {
+        repositoryPage++;
+        RenderRepositoryFiles();
+    }
+
     private void RenderRepositoryFiles()
     {
         RepositoryFiles.Children.Clear();
+        RepositoryFilePager.IsVisible = RepositoryTreeToggle.IsChecked != true && repositoryFiles.Length > RepositoryPageSize;
         if (RepositoryTreeToggle.IsChecked == true)
         {
             RenderRepositoryTree(repositoryFiles.Select(file => new RepositoryTreeFile(file, false))
@@ -585,7 +610,12 @@ public sealed partial class AccountView
         }
         var explicitProjects = repositoryFiles.Select(file => file.ProjectId).OfType<string>().ToHashSet();
         var mods = resolvedRepositoryMods.Where(file => file.ProjectId is not null).ToDictionary(file => file.ProjectId!);
-        foreach (var file in repositoryFiles)
+        var lastPage = Math.Max(0, (repositoryFiles.Length - 1) / RepositoryPageSize);
+        repositoryPage = Math.Clamp(repositoryPage, 0, lastPage);
+        RepositoryFilePage.Text = $"{repositoryPage + 1} / {lastPage + 1}";
+        RepositoryPreviousFiles.IsEnabled = repositoryPage > 0;
+        RepositoryNextFiles.IsEnabled = repositoryPage < lastPage;
+        foreach (var file in repositoryFiles.Skip(repositoryPage * RepositoryPageSize).Take(RepositoryPageSize))
         {
             var dependencies = FindAutomaticDependencies(file.ProjectId, mods, explicitProjects);
             RepositoryFiles.Children.Add(CreateRepositoryFileCard(file, automatic: false, dependencies));
@@ -720,13 +750,20 @@ public sealed partial class AccountView
                 buttons.Children.Add(CreateLockPicker(file, project));
         }
         row.Children.Add(buttons);
-        var editor = CreateCardEditor(file, automatic);
+        Control? editor = null;
         var edit = new Button { Content = T("repository.edit_card") };
         if (automatic)
             ToolTip.SetTip(edit, T("repository.pin_dependency_hint"));
-        edit.Click += (_, _) => editor.IsVisible = !editor.IsVisible;
+        edit.Click += (_, _) =>
+        {
+            if (editor is null)
+            {
+                editor = CreateCardEditor(file, automatic);
+                row.Children.Insert(row.Children.IndexOf(buttons) + 1, editor);
+            }
+            editor.IsVisible = !editor.IsVisible;
+        };
         buttons.Children.Add(edit);
-        row.Children.Add(editor);
         if (dependencies is { Count: > 0 })
             row.Children.Add(CreateDependencyCards(dependencies));
         return new Border
@@ -736,6 +773,7 @@ public sealed partial class AccountView
             Background = Brush.Parse("#222D3D"),
             BorderThickness = new Thickness(4, 0, 0, 0),
             BorderBrush = TypeBrush(file.Type),
+            Tag = file,
             Child = row
         };
     }
@@ -772,6 +810,24 @@ public sealed partial class AccountView
         AddRepositoryFolder(updated.Folder);
         repositoryFiles = automatic ? [.. repositoryFiles, updated] :
             repositoryFiles.Select(entry => ReferenceEquals(entry, file) ? updated : entry).ToArray();
+        if (!automatic && RepositoryTreeToggle.IsChecked != true &&
+            RepositoryFiles.Children.FirstOrDefault(child => ReferenceEquals(child.Tag, file)) is { } card)
+        {
+            var projects = repositoryFiles.Select(entry => entry.ProjectId).OfType<string>().ToHashSet();
+            var mods = resolvedRepositoryMods.Where(entry => entry.ProjectId is not null).ToDictionary(entry => entry.ProjectId!);
+            var dependencies = FindAutomaticDependencies(updated.ProjectId, mods, projects);
+            RepositoryFiles.Children[RepositoryFiles.Children.IndexOf(card)] = CreateRepositoryFileCard(updated, false, dependencies);
+            return;
+        }
+        if (!automatic && file.Folder == updated.Folder && file.Card == updated.Card &&
+            RepositoryFileTree.SelectedItem is TreeViewItem { Tag: RepositoryTreeFile selection } node &&
+            ReferenceEquals(selection.File, file))
+        {
+            var next = new RepositoryTreeFile(updated, false);
+            node.Tag = next;
+            ShowTreeFile(next);
+            return;
+        }
         RenderRepositoryFiles();
     }
 

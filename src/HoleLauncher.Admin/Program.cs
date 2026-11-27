@@ -20,8 +20,8 @@ internal static partial class Program
     [JSImport("showLogin", "admin")]
     public static partial void ShowLogin(bool visible, string? message = null);
 
-    [JSImport("registerModrinthPaste", "admin")]
-    public static partial void RegisterModrinthPaste(
+    [JSImport("registerBrowserPaste", "admin")]
+    public static partial void RegisterBrowserPaste(
         [JSMarshalAs<JSType.Function<JSType.Boolean>>] Func<bool> focused,
         [JSMarshalAs<JSType.Function<JSType.String>>] Action<string> paste);
 

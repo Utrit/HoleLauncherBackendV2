@@ -19,7 +19,7 @@ public sealed partial class AccountView : UserControl
         InitializeComponent();
         AddHandler(PointerMovedEvent, OnRepositoryTreePointerMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerReleasedEvent, OnRepositoryTreePointerReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
-        Program.RegisterModrinthPaste(() => FocusedModrinthSearch() is not null, PasteModrinthSearch);
+        Program.RegisterBrowserPaste(() => FocusedPasteInput() is not null, PasteText);
         LanguagePicker.SelectedIndex = Program.GetLanguage() == "en" ? 1 : 0;
         SizeChanged += (_, _) => UpdateDashboardLayout();
         foreach (var permission in Permissions.All)
@@ -378,6 +378,7 @@ public sealed partial class AccountView : UserControl
 [JsonSerializable(typeof(LauncherSource))]
 [JsonSerializable(typeof(LauncherRelease))]
 [JsonSerializable(typeof(RepositoryDraft))]
+[JsonSerializable(typeof(RepositoryBuildEvent))]
 [JsonSerializable(typeof(RepositoryBuildError))]
 [JsonSerializable(typeof(OfferDraft))]
 [JsonSerializable(typeof(OfferTarget[]))]

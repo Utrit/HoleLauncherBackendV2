@@ -20,13 +20,14 @@ internal sealed class GameTextureOperations(
 
     public async Task EnqueueAsync(OrchestrationMessage message, CancellationToken cancellation)
     {
-        if (message.GameTexture is not { } texture || texture.FileId == Guid.Empty || !SkinModels.IsValid(texture.Model) ||
+        if (message.GameTexture is not { } texture || !SkinModels.IsValid(texture.Model) ||
             message.ActorId == Guid.Empty || message.ExpiresAt is not { } expires || expires <= DateTimeOffset.UtcNow)
             return;
 
         await using var connection = await game.OpenConnectionAsync(cancellation);
         await using var transaction = await connection.BeginTransactionAsync(cancellation);
-        await transaction.LockStorageFileAsync(texture.FileId, cancellation);
+        if (texture.FileId != Guid.Empty)
+            await transaction.LockStorageFileAsync(texture.FileId, cancellation);
         await using var insert = transaction.CreateSqlCommand("""
             INSERT INTO game_texture_history (operation_id, account_id, file_id, is_skin, skin_model)
             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (operation_id) DO NOTHING
@@ -83,7 +84,7 @@ internal sealed class GameTextureOperations(
         byte[]? bytes;
         try
         {
-            bytes = await ReadTextureAsync(entry.AccountId, entry.FileId, cancellation);
+            bytes = entry.FileId == Guid.Empty ? null : await ReadTextureAsync(entry.AccountId, entry.FileId, cancellation);
         }
         catch (Exception error) when (IsNetworkFailure(error, cancellation))
         {
@@ -91,7 +92,7 @@ internal sealed class GameTextureOperations(
                 "error.texture_read", cancellation);
             return;
         }
-        if (bytes is null)
+        if (bytes is null && entry.FileId != Guid.Empty)
         {
             await UpdateAsync(transaction, entry.OperationId, "reverted", AccessOutcome.NotFound,
                 "error.texture_missing", cancellation);
@@ -106,7 +107,9 @@ internal sealed class GameTextureOperations(
 
         try
         {
-            var status = await drasl.SetTextureAsync(entry.AccountId, bytes, entry.Skin, entry.Model, cancellation);
+            var status = bytes is null
+                ? await drasl.ClearTextureAsync(entry.AccountId, entry.Skin, cancellation)
+                : await drasl.SetTextureAsync(entry.AccountId, bytes, entry.Skin, entry.Model, cancellation);
             if ((int)status is >= 200 and < 300)
                 await UpdateAsync(transaction, entry.OperationId, "complete", AccessOutcome.NoContent, "", cancellation);
             else if ((int)status >= 500)
@@ -172,7 +175,7 @@ internal sealed class GameTextureOperations(
             """, entry.AccountId, entry.Skin);
         await using var row = await query.ExecuteReaderAsync(cancellation);
         return await row.ReadAsync(cancellation)
-            ? (row.IsDBNull(0) ? null : row.GetGuid(0), row.GetString(1))
+            ? (row.IsDBNull(0) || row.GetGuid(0) == Guid.Empty ? null : row.GetGuid(0), row.GetString(1))
             : (null, SkinModels.Classic);
     }
 

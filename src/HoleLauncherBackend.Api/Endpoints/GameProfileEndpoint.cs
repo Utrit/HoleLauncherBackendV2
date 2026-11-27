@@ -12,6 +12,10 @@ internal sealed class GameProfileEndpoint(
     public void Map(IEndpointRouteBuilder routes)
     {
         var profile = routes.MapGroup("/game-profile");
+        profile.MapDelete("/{texture}", (string texture, HttpContext context) =>
+            WithTextureAsync(context, texture, async (_, skin) => AccountManagementProxy.Result(
+                await accounts.SendAsync(context, AccessOperation.ChangeGameTexture, context.RequestAborted,
+                    gameTexture: new GameTextureCommand(Guid.Empty, skin, SkinModels.Classic)))));
         profile.MapGet("", async Task<IResult> (HttpContext context) => await WithAccountAsync(context, async account =>
             Results.Ok(await profiles.FindAsync(account, context.RequestAborted))));
         profile.MapPut("/name", ChangeNameAsync);

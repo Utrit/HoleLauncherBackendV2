@@ -34,7 +34,8 @@ internal sealed class GameProfileStore(NpgsqlDataSource database)
         await using var row = await query.ExecuteReaderAsync(cancellation);
         return await row.ReadAsync(cancellation)
             ? new GameProfile(row.IsDBNull(0) ? account.UserName : row.GetString(0),
-                row.IsDBNull(1) ? null : row.GetGuid(1), row.IsDBNull(2) ? null : row.GetGuid(2), row.GetFieldValue<string[]>(3), row.IsDBNull(4) ? SkinModels.Classic : row.GetString(4))
+                row.IsDBNull(1) || row.GetGuid(1) == Guid.Empty ? null : row.GetGuid(1),
+                row.IsDBNull(2) || row.GetGuid(2) == Guid.Empty ? null : row.GetGuid(2), row.GetFieldValue<string[]>(3), row.IsDBNull(4) ? SkinModels.Classic : row.GetString(4))
             : new GameProfile(null, null, null);
     }
 
