@@ -3,7 +3,7 @@ using HoleLauncherBackend.Contracts;
 
 namespace HoleLauncherBackend.Api.Endpoints;
 
-internal sealed class LauncherEndpoint(AccountManagementProxy accounts, IHttpClientFactory clients) : IAccountEndpoint
+internal sealed class LauncherEndpoint(AccountManagementProxy accounts, IHttpClientFactory clients, ILogger<LauncherEndpoint> logger) : IAccountEndpoint
 {
     public void Map(IEndpointRouteBuilder routes)
     {
@@ -24,7 +24,11 @@ internal sealed class LauncherEndpoint(AccountManagementProxy accounts, IHttpCli
         var ct = context.RequestAborted;
         var reply = await accounts.SendAsync(context, AccessOperation.Session, ct);
         if (reply is not { Outcome: AccessOutcome.Ok, Account: { } account })
+        {
+            if (reply.Outcome == AccessOutcome.Unavailable)
+                return Unavailable("session", reply.Outcome.ToString());
             return AccountManagementProxy.Result(reply);
+        }
         if (!account.Permissions.Contains(Permissions.EditLauncher))
             return Results.StatusCode(StatusCodes.Status403Forbidden);
 
@@ -48,9 +52,13 @@ internal sealed class LauncherEndpoint(AccountManagementProxy accounts, IHttpCli
         catch (Exception error) when (error is HttpRequestException ||
             error is OperationCanceledException && !ct.IsCancellationRequested)
         {
-            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            logger.LogWarning(error, "Launcher Service request failed");
+            return Unavailable("service", error.GetType().Name);
         }
     }
+
+    private static IResult Unavailable(string stage, string failure) =>
+        Results.Json(new LauncherImportFailure(stage, failure), statusCode: StatusCodes.Status503ServiceUnavailable);
 
     private async Task<IResult> DownloadAsync(HttpContext context, string path, string? filename)
     {

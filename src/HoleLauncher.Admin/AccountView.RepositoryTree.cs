@@ -19,6 +19,8 @@ public sealed partial class AccountView
     private IPointer? treeDragPointer;
     private bool treeDragging;
     private Border? treeDropHeader;
+    private IBrush? treeDropPreviousBackground;
+    private Dictionary<string, TreeViewItem> repositoryTreeFolders = new(StringComparer.OrdinalIgnoreCase);
     private const double TreeDragThreshold = 6;
     private const double TreeDragPreviewOffset = 14;
 
@@ -53,7 +55,7 @@ public sealed partial class AccountView
         RepositoryBuildFilesTab.IsSelected = true;
         var tree = RepositoryTreeToggle.IsChecked == true;
         RepositoryTreePanel.IsVisible = tree;
-        RepositoryFiles.IsVisible = RepositoryFlatDetails.IsVisible = !tree;
+        RepositoryFiles.IsVisible = !tree;
         RenderRepositoryFiles();
     }
 
@@ -134,7 +136,10 @@ public sealed partial class AccountView
             ClearTreeDropHighlight();
             treeDropHeader = target?.Header as Border;
             if (treeDropHeader is not null)
+            {
+                treeDropPreviousBackground = treeDropHeader.Background;
                 treeDropHeader.Background = Brush.Parse("#36516C");
+            }
         }
         e.Handled = true;
     }
@@ -166,9 +171,18 @@ public sealed partial class AccountView
         if (!new Rect(RepositoryFileTree.Bounds.Size).Contains(point))
             return null;
 
-        var hit = RepositoryFileTree.InputHitTest(point) as Visual;
-        var item = hit as TreeViewItem ?? hit?.FindAncestorOfType<TreeViewItem>();
-        return item?.Tag is FolderChoice ? item : null;
+        var item = HitItem(point) ?? HitItem(point.WithY(point.Y + 4)) ?? HitItem(point.WithY(point.Y - 4));
+        if (item?.Tag is FolderChoice)
+            return item;
+        if (item?.Tag is RepositoryTreeFile leaf)
+            return repositoryTreeFolders.GetValueOrDefault(leaf.File.EffectiveFolder);
+        return null;
+
+        TreeViewItem? HitItem(Point position)
+        {
+            var hit = RepositoryFileTree.InputHitTest(position) as Visual;
+            return hit as TreeViewItem ?? hit?.FindAncestorOfType<TreeViewItem>();
+        }
     }
 
     private void OnRepositoryTreePointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
@@ -190,13 +204,15 @@ public sealed partial class AccountView
     private void ClearTreeDropHighlight()
     {
         if (treeDropHeader is not null)
-            treeDropHeader.Background = Brushes.Transparent;
+            treeDropHeader.Background = treeDropPreviousBackground;
         treeDropHeader = null;
+        treeDropPreviousBackground = null;
     }
 
     private void RenderRepositoryTree(IEnumerable<RepositoryTreeFile> files)
     {
         var folders = new Dictionary<string, TreeViewItem>(StringComparer.OrdinalIgnoreCase);
+        var fileCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var root = GetFolder("");
         foreach (var folder in repositoryFolders.Order(StringComparer.OrdinalIgnoreCase))
             GetFolder(folder);
@@ -206,7 +222,8 @@ public sealed partial class AccountView
         {
             var file = item.File;
             var folder = file.EffectiveFolder;
-            var leaf = new TreeViewItem { Header = CreateCard(file.Card, compact: true), Tag = item };
+            var leaf = new TreeViewItem { Header = new Border { Background = Brushes.Transparent,
+                Child = CreateCard(file.Card, compact: true) }, Tag = item };
             if (!item.Automatic)
             {
                 leaf.Cursor = new Cursor(StandardCursorType.Hand);
@@ -221,13 +238,16 @@ public sealed partial class AccountView
                     treeDragOrigin = args.GetPosition(RepositoryFileTree);
                 }, RoutingStrategies.Tunnel);
             }
-            GetFolder(folder).Items.Add(leaf);
+            var index = fileCounts.GetValueOrDefault(folder);
+            GetFolder(folder).Items.Insert(index, leaf);
+            fileCounts[folder] = index + 1;
             if (item.Key == selectedTreeFile)
                 selected = leaf;
         }
 
         if (selected is null && selectedTreeFolder is { } path)
             folders.TryGetValue(path, out selected);
+        repositoryTreeFolders = folders;
         RepositoryFileTree.ItemsSource = new[] { root };
         RepositoryFileTree.SelectedItem = selected;
         ApplyTreeSelection(selected);

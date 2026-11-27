@@ -17,48 +17,42 @@ public sealed partial class AccountView
     private List<(int Index, TreeViewItem? Node)> repositoryMatches = [];
     private int repositoryMatch = -1;
 
-    private static Control CreateFlatRepositoryCard()
-    {
-        const int iconSize = 18;
-        var icon = new Image { Width = iconSize, Height = iconSize, Stretch = Stretch.UniformToFill };
-        var title = new TextBlock { VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis, FontWeight = FontWeight.SemiBold };
-        var content = new Grid { ColumnDefinitions = new("Auto,*"), ColumnSpacing = 10, Children = { icon, title } };
-        Grid.SetColumn(title, 1);
-        var row = new Border { Height = 36, Padding = new Thickness(8, 4), ClipToBounds = true,
-            BorderThickness = new Thickness(3, 0, 0, 0), Child = content };
-        row.DataContextChanged += (_, _) => _ = UpdateAsync();
-        row.AttachedToVisualTree += (_, _) => _ = UpdateAsync();
-        return row;
+    private static readonly IBrush RepositoryMatchBrush = Brush.Parse("#7A621D");
+    private static readonly IBrush RepositoryCardBrush = Brush.Parse("#222D3D");
 
-        async Task UpdateAsync()
+    private Control CreateFlatRepositoryCard()
+    {
+        var row = new ContentControl { HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch };
+        row.DataContextChanged += (_, _) =>
         {
-            var file = row.DataContext as RepositoryFile;
-            title.Text = file?.Card?.Title;
-            row.BorderBrush = file is null ? null : TypeBrush(file.Type);
-            icon.Source = null;
-            if (!row.IsAttachedToVisualTree() || file?.Card?.IconUrl is not { Length: > 0 } url)
-                return;
-            var bitmap = await GetRepositoryIconAsync(url, iconSize);
-            if (ReferenceEquals(row.DataContext, file))
-                icon.Source = bitmap;
+            // A virtualized container has no item between two assignments.
+            row.Content = row.DataContext is RepositoryFile { Card: not null } file
+                ? CreateRepositoryFileCard(file, false,
+                    FindAutomaticDependencies(file.ProjectId, flatResolvedMods, flatExplicitProjects))
+                : null;
+        };
+        return row;
+    }
+
+    private bool IsRepositoryMatch(RepositoryFile file) =>
+        RepositoryFindBar?.IsVisible == true && RepositoryFindText.Text?.Trim() is { Length: > 0 } query && Matches(file, query);
+
+    private void ApplyRepositoryMatchHighlights()
+    {
+        foreach (var card in RepositoryFiles.GetVisualDescendants().OfType<Border>())
+            if (card.Tag is RepositoryFile file)
+                card.Background = IsRepositoryMatch(file) ? RepositoryMatchBrush : RepositoryCardBrush;
+
+        var query = RepositoryFindBar.IsVisible ? RepositoryFindText.Text?.Trim() : null;
+        foreach (var node in RepositoryFileTree.Items.OfType<TreeViewItem>().SelectMany(TreeNodes))
+        {
+            if (node.Header is not Border header)
+                continue;
+            var matches = node.Tag is RepositoryTreeFile leaf && IsRepositoryMatch(leaf.File) ||
+                node.Tag is FolderChoice folder && query is { Length: > 0 } &&
+                folder.ToString().Contains(query, StringComparison.OrdinalIgnoreCase);
+            header.Background = matches ? RepositoryMatchBrush : Brushes.Transparent;
         }
-    }
-
-    private void OnFlatRepositoryFileSelected(object? sender, SelectionChangedEventArgs e)
-    {
-        if (e.Source == RepositoryFiles)
-            ShowFlatRepositoryDetails();
-    }
-
-    private void ShowFlatRepositoryDetails()
-    {
-        if (RepositoryFlatDetails is null)
-            return;
-        RepositoryFlatDetails.Content = RepositoryFiles.SelectedItem is RepositoryFile file
-            ? CreateRepositoryFileCard(file, false,
-                FindAutomaticDependencies(file.ProjectId, flatResolvedMods, flatExplicitProjects))
-            : null;
     }
 
     private void OpenRepositoryFind()
@@ -84,6 +78,7 @@ public sealed partial class AccountView
     {
         RepositoryFindBar.IsVisible = false;
         RepositoryFindText.Clear();
+        ApplyRepositoryMatchHighlights();
         if (RepositoryTreeToggle.IsChecked == true)
             RepositoryFileTree.Focus();
         else
@@ -129,13 +124,14 @@ public sealed partial class AccountView
         repositoryMatch = repositoryMatches.Count == 0 ? -1 : jump ? 0 :
             Math.Clamp(repositoryMatch, 0, repositoryMatches.Count - 1);
         UpdateRepositoryMatchCount();
+        ApplyRepositoryMatchHighlights();
         if (jump && repositoryMatch >= 0)
             ScrollToRepositoryMatch();
     }
 
     private static bool Matches(RepositoryFile file, string query) =>
-        file.Card.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-        (file.Card.Description?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (file.Card?.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (file.Card?.Description?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
         file.EffectiveFolder.Contains(query, StringComparison.OrdinalIgnoreCase);
 
     private static IEnumerable<TreeViewItem> TreeNodes(TreeViewItem item)

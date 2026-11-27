@@ -6,8 +6,15 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<LauncherStore>();
 builder.Services.AddHostedService<LauncherPublicationRecovery>();
 builder.Services.AddSingleton<LauncherStorage>();
-builder.Services.AddSingleton(_ => new KafkaBus(builder.Configuration["Kafka:BootstrapServers"]!,
-    builder.Configuration["Kafka:Username"]!, builder.Configuration["Kafka:Password"]!));
+builder.Services.AddSingleton(_ => new Lazy<KafkaBus>(() =>
+{
+    var servers = builder.Configuration["Kafka:BootstrapServers"];
+    var username = builder.Configuration["Kafka:Username"];
+    var password = builder.Configuration["Kafka:Password"];
+    if (string.IsNullOrWhiteSpace(servers) || string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        throw new InvalidOperationException("Launcher Kafka configuration is incomplete.");
+    return new KafkaBus(servers, username, password);
+}));
 builder.Services.AddHttpClient("storage", client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["Storage:Url"] ?? "http://storage:8080/");

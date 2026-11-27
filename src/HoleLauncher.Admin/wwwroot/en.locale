@@ -305,6 +305,8 @@
   "launcher.stage.storage": "Storage publication",
   "launcher.stage.metadata": "saving the publication",
   "launcher.stage.configuration": "public address configuration",
+  "launcher.stage.service": "connecting to Launcher Service",
+  "launcher.stage.session": "checking the session in Access Service",
   "launcher.stage.recovery": "previous publication cleanup",
   "launcher.failed": "Could not import the launcher release. Check that both release assets are available.",
   "launcher.empty": "No launcher release has been imported.",

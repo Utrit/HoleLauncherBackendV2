@@ -4,16 +4,24 @@ using HoleLauncherBackend.Messaging;
 
 namespace HoleLauncherBackend.Launcher;
 
-internal sealed class LauncherStorage(IHttpClientFactory clients, KafkaBus bus, ILogger<LauncherStorage> logger)
+internal sealed class LauncherStorage(IHttpClientFactory clients, Lazy<KafkaBus> kafka, ILogger<LauncherStorage> logger) : IDisposable
 {
     private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan PublishTimeout = TimeSpan.FromSeconds(40);
     private static readonly TimeSpan PublishCheckInterval = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan DiscardTimeout = TimeSpan.FromSeconds(6);
 
+    private KafkaBus Bus => kafka.Value;
+
+    public void Dispose()
+    {
+        if (kafka.IsValueCreated)
+            kafka.Value.Dispose();
+    }
+
     public async Task UploadAsync(Guid id, Guid uploader, string path, CancellationToken cancellation)
     {
-        using var consumer = bus.CreateConsumer("holelauncher-launcher");
+        using var consumer = Bus.CreateConsumer("holelauncher-launcher");
         var partition = KafkaBus.ReplyPartition;
         var offsets = consumer.QueryWatermarkOffsets(partition, StartTimeout);
         consumer.Assign(new TopicPartitionOffset(partition, offsets.High));
@@ -30,7 +38,7 @@ internal sealed class LauncherStorage(IHttpClientFactory clients, KafkaBus bus, 
         upload.Headers.Add("X-Storage-File-Name", Uri.EscapeDataString(Path.GetFileName(path)));
         using var response = await client.SendAsync(upload, HttpCompletionOption.ResponseHeadersRead, cancellation);
         response.EnsureSuccessStatusCode();
-        await bus.PublishAsync(KafkaBus.StorageTransfersTopic, id.ToString("N"),
+        await Bus.PublishAsync(KafkaBus.StorageTransfersTopic, id.ToString("N"),
             new StorageTransfer(id, Complete: true), cancellation);
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -53,7 +61,7 @@ internal sealed class LauncherStorage(IHttpClientFactory clients, KafkaBus bus, 
         deadline.CancelAfter(StartTimeout);
         var token = deadline.Token;
         var correlation = Guid.NewGuid();
-        await bus.PublishAsync(KafkaBus.OperationsTopic, id.ToString("N"),
+        await Bus.PublishAsync(KafkaBus.OperationsTopic, id.ToString("N"),
             new OrchestrationMessage(correlation, uploader, id, DateTimeOffset.UtcNow + StartTimeout,
                 UploadDomain: domain), token);
         return await Task.Run(() =>
@@ -73,11 +81,11 @@ internal sealed class LauncherStorage(IHttpClientFactory clients, KafkaBus bus, 
         using var deadline = new CancellationTokenSource(DiscardTimeout);
         try
         {
-            await bus.PublishAsync(KafkaBus.OperationsTopic, id.ToString("N"),
+            await Bus.PublishAsync(KafkaBus.OperationsTopic, id.ToString("N"),
                 new OrchestrationMessage(Guid.Empty, Guid.Empty, id, DiscardLauncherArtifact: true), deadline.Token);
             return true;
         }
-        catch (Exception error) when (error is KafkaException or OperationCanceledException)
+        catch (Exception error) when (error is KafkaException or InvalidOperationException or OperationCanceledException)
         {
             logger.LogWarning("Could not request cleanup of launcher artifact {FileId}: {ErrorType}", id, error.GetType().Name);
             return false;

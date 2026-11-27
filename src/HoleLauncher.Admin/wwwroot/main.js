@@ -160,6 +160,12 @@ function chooseRepositoryFile(image, zip) {
     });
 }
 
+let sessionExpired;
+
+function registerSessionExpiry(expired) {
+    sessionExpired = expired;
+}
+
 function uploadRepositoryFile(path, file, progress) {
     return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -170,7 +176,10 @@ function uploadRepositoryFile(path, file, progress) {
         xhr.setRequestHeader("X-Storage-File-Name", encodeURIComponent(file.name));
         xhr.upload.addEventListener("progress", event => progress(
             event.loaded, file.size, event.loaded * 1000 / Math.max(1, performance.now() - first)));
-        xhr.onload = () => resolve(JSON.stringify({ status: xhr.status, body: xhr.responseText }));
+        xhr.onload = () => {
+            if (xhr.status === 401) sessionExpired?.();
+            resolve(JSON.stringify({ status: xhr.status, body: xhr.responseText }));
+        };
         xhr.onerror = xhr.ontimeout = xhr.onabort = () => reject(new Error("Repository upload interrupted"));
         first = performance.now();
         xhr.send(file);
@@ -179,6 +188,7 @@ function uploadRepositoryFile(path, file, progress) {
 
 async function downloadRepositoryArchive(path, fallback) {
     const response = await fetch(path, { signal: AbortSignal.timeout(15 * 60 * 1000) });
+    if (response.status === 401) sessionExpired?.();
     if (!response.ok) return response.status;
     const match = response.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/i);
     const url = URL.createObjectURL(await response.blob());
@@ -196,7 +206,7 @@ async function downloadRepositoryArchive(path, fallback) {
 try {
     const { dotnet } = await import("./_framework/dotnet.js");
     const runtime = await dotnet.create();
-    runtime.setModuleImports("admin", { getOrigin: () => window.location.origin, showLogin, translate, registerRepositoryFind, registerBrowserPaste, readRepositoryFile, copyRepositoryBytes, createRepositoryFile, chooseRepositoryFile, takeRepositoryDrop, uploadRepositoryFile, downloadRepositoryArchive, getLanguage: () => language, setLanguage });
+    runtime.setModuleImports("admin", { getOrigin: () => window.location.origin, showLogin, translate, registerSessionExpiry, registerRepositoryFind, registerBrowserPaste, readRepositoryFile, copyRepositoryBytes, createRepositoryFile, chooseRepositoryFile, takeRepositoryDrop, uploadRepositoryFile, downloadRepositoryArchive, getLanguage: () => language, setLanguage });
     await runtime.runMain(runtime.getConfig().mainAssemblyName, []);
     startup.remove();
 } catch (error) {

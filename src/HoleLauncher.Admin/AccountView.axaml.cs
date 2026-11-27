@@ -12,7 +12,9 @@ namespace HoleLauncher.Admin;
 
 public sealed partial class AccountView : UserControl
 {
-    private static readonly HttpClient Api = new() { BaseAddress = new Uri(Program.GetOrigin()) };
+    private static readonly SessionExpiryHandler SessionExpiry = new();
+    private static readonly HttpClient Api = new(SessionExpiry) { BaseAddress = new Uri(Program.GetOrigin()) };
+    private readonly Avalonia.Threading.DispatcherTimer sessionCheck = new() { Interval = TimeSpan.FromSeconds(30) };
 
     public AccountView()
     {
@@ -28,7 +30,52 @@ public sealed partial class AccountView : UserControl
         SizeChanged += (_, _) => UpdateDashboardLayout();
         foreach (var permission in Permissions.All)
             PermissionFlags.Children.Add(new CheckBox { Content = T($"permission.{permission}"), Tag = permission });
-        Loaded += async (_, _) => await UpdateSessionAsync();
+        SessionExpiry.Expired = ReturnToLogin;
+        Program.RegisterSessionExpiry(ReturnToLogin);
+        sessionCheck.Tick += (_, _) => _ = CheckSessionAsync();
+        Loaded += async (_, _) =>
+        {
+            sessionCheck.Start();
+            await UpdateSessionAsync();
+        };
+        Unloaded += (_, _) => sessionCheck.Stop();
+    }
+
+    private bool checkingSession;
+
+    private void ReturnToLogin()
+    {
+        if (currentAccountId is not null)
+            ShowAccount(null);
+    }
+
+    private async Task CheckSessionAsync()
+    {
+        if (checkingSession || currentAccountId is null)
+            return;
+
+        checkingSession = true;
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var response = await Api.GetAsync("/api/auth/me", deadline.Token);
+        }
+        catch (Exception error) when (error is HttpRequestException or OperationCanceledException) { }
+        finally { checkingSession = false; }
+    }
+
+    private sealed class SessionExpiryHandler() : DelegatingHandler(new HttpClientHandler())
+    {
+        public Action? Expired { get; set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var response = await base.SendAsync(request, cancellationToken);
+            if (response.StatusCode == HttpStatusCode.Unauthorized &&
+                request.RequestUri?.AbsolutePath.StartsWith("/api/", StringComparison.Ordinal) == true)
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => Expired?.Invoke());
+            return response;
+        }
     }
 
     private async Task UpdateSessionAsync()

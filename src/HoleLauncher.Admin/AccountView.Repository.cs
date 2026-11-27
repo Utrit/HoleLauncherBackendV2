@@ -749,7 +749,7 @@ public sealed partial class AccountView
         {
             Padding = new Thickness(10),
             CornerRadius = new CornerRadius(8),
-            Background = Brush.Parse("#222D3D"),
+            Background = IsRepositoryMatch(file) ? RepositoryMatchBrush : RepositoryCardBrush,
             BorderThickness = new Thickness(4, 0, 0, 0),
             BorderBrush = TypeBrush(file.Type),
             Tag = file,
@@ -799,7 +799,6 @@ public sealed partial class AccountView
                 if (selected)
                 {
                     RepositoryFiles.SelectedIndex = index;
-                    ShowFlatRepositoryDetails();
                 }
             }
             RefreshRepositoryMatches();

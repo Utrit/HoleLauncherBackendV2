@@ -20,6 +20,9 @@ internal static partial class Program
     [JSImport("showLogin", "admin")]
     public static partial void ShowLogin(bool visible, string? message = null);
 
+    [JSImport("registerSessionExpiry", "admin")]
+    public static partial void RegisterSessionExpiry([JSMarshalAs<JSType.Function>] Action expired);
+
     [JSImport("registerRepositoryFind", "admin")]
     public static partial void RegisterRepositoryFind(
         [JSMarshalAs<JSType.Function<JSType.Boolean>>] Func<bool> focused,

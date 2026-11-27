@@ -25,9 +25,9 @@ public sealed partial class AccountView
                 ShowLauncherRelease(null);
                 return;
             }
-            if (response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable)
+            if (!response.IsSuccessStatusCode)
             {
-                LauncherMessage.Text = T("launcher.unavailable");
+                await ShowLauncherErrorAsync(response, cancellation);
                 return;
             }
             response.EnsureSuccessStatusCode();
@@ -41,18 +41,27 @@ public sealed partial class AccountView
         using var response = await Api.PutAsJsonAsync(LauncherEndpointPath, source, AdminJsonContext.Default.LauncherSource, cancellation);
         if (!response.IsSuccessStatusCode)
         {
-            if (response.StatusCode == System.Net.HttpStatusCode.BadGateway &&
-                response.Content.Headers.ContentType?.MediaType == "application/json" &&
-                await response.Content.ReadFromJsonAsync(AdminJsonContext.Default.LauncherImportFailure, cancellation) is { } error)
-            {
-                LauncherMessage.Text = T("launcher.import_error", T($"launcher.stage.{error.Stage}"), error.Failure);
-                return;
-            }
-            LauncherMessage.Text = T(response.StatusCode == System.Net.HttpStatusCode.BadRequest ? "launcher.invalid" : "launcher.failed");
+            await ShowLauncherErrorAsync(response, cancellation);
             return;
         }
         ShowLauncherRelease(await response.Content.ReadFromJsonAsync(AdminJsonContext.Default.LauncherRelease, cancellation));
     });
+
+    private async Task ShowLauncherErrorAsync(HttpResponseMessage response, CancellationToken cancellation)
+    {
+        if (response.Content.Headers.ContentType?.MediaType == "application/json" &&
+            await response.Content.ReadFromJsonAsync(AdminJsonContext.Default.LauncherImportFailure, cancellation) is { } error)
+        {
+            LauncherMessage.Text = T("launcher.import_error", T($"launcher.stage.{error.Stage}"), error.Failure);
+            return;
+        }
+        LauncherMessage.Text = T(response.StatusCode switch
+        {
+            System.Net.HttpStatusCode.BadRequest => "launcher.invalid",
+            System.Net.HttpStatusCode.ServiceUnavailable => "launcher.unavailable",
+            _ => "launcher.failed"
+        });
+    }
 
     private void ShowLauncherRelease(LauncherRelease? release)
     {

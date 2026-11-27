@@ -305,6 +305,8 @@
   "launcher.stage.storage": "публикация в Storage",
   "launcher.stage.metadata": "сохранение публикации",
   "launcher.stage.configuration": "настройка публичного адреса",
+  "launcher.stage.service": "подключение к Launcher Service",
+  "launcher.stage.session": "проверка сессии в Access Service",
   "launcher.stage.recovery": "очистка предыдущей публикации",
   "launcher.failed": "Не удалось импортировать релиз. Проверьте, что в нём доступны оба файла лаунчера.",
   "launcher.empty": "Релиз лаунчера ещё не импортирован.",

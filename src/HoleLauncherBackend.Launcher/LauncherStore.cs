@@ -131,7 +131,7 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
             }
         }
         catch (Exception error) when (error is Confluent.Kafka.KafkaException or HttpRequestException or IOException or
-            UnauthorizedAccessException or InvalidDataException or JsonException ||
+            UnauthorizedAccessException or InvalidDataException or InvalidOperationException or JsonException ||
             error is OperationCanceledException && !cancellation.IsCancellationRequested)
         {
             var failure = error is Confluent.Kafka.KafkaException kafka
