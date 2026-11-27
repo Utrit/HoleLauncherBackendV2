@@ -11,12 +11,18 @@ using HoleLauncherBackend.Contracts;
 
 namespace HoleLauncherBackend.Launcher;
 
-internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfiguration configuration, LauncherStorage storage)
+internal sealed class LauncherImportException(string stage, string failure, Exception cause) : Exception(failure, cause)
+{
+    public string Stage { get; } = stage;
+    public string Failure { get; } = failure;
+}
+
+internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfiguration configuration, LauncherStorage storage, ILogger<LauncherStore> logger)
 {
     private const long MaxFileSize = 160L * 1024 * 1024;
     private const int MaxAddressBytes = 2048;
     private const int MaxRedirects = 4;
-    private static readonly TimeSpan ImportTimeout = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan ImportTimeout = TimeSpan.FromMinutes(15);
     private static ReadOnlySpan<byte> Footer => "HOLELAUNCHER-BACKEND-V1"u8;
     private static ReadOnlySpan<byte> FingerprintMarker => "HOLELAUNCHER-SHA512-V1"u8;
     private readonly string root = configuration["Launcher:Root"] ?? "/data/launcher";
@@ -53,16 +59,19 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
         if (uploader == Guid.Empty || !RepositoryPattern().IsMatch(repository))
             return null;
 
-        var address = PublicAddress(configuration["Launcher:PublicOrigin"]);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         timeout.CancelAfter(ImportTimeout);
         var token = timeout.Token;
+        var stage = "configuration";
         await import.WaitAsync(token);
         try
         {
+            var address = PublicAddress(configuration["Launcher:PublicOrigin"]);
+            stage = "recovery";
             if (!await CleanupPendingAsync())
                 throw new IOException("Previous launcher publication cleanup is pending.");
 
+            stage = "github";
             using var http = clients.CreateClient("github");
             var githubToken = configuration["Launcher:GitHubToken"];
             using var lookup = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{repository}/releases/latest");
@@ -84,6 +93,7 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
                 await DownloadAsync(http, repository, windows, githubToken, Path.Combine(folder, WindowsName), token);
                 var source = Path.Combine(folder, "download.tar.gz");
                 await DownloadAsync(http, repository, linux, githubToken, source, token);
+                stage = "patch";
                 await UnpackLinuxAsync(source, Path.Combine(folder, LinuxName), token);
                 File.Delete(source);
                 var windowsPath = Path.Combine(folder, WindowsName);
@@ -93,12 +103,15 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
 
                 var state = new Publication(new LauncherRelease(repository, release.Tag),
                     new Artifact(windowsId, windowsHash), new Artifact(linuxId, linuxHash));
+                stage = "metadata";
                 var pending = new PendingPublication(state, ReadPublished());
                 await File.WriteAllTextAsync(marker, JsonSerializer.Serialize(pending), token);
                 File.Move(marker, PendingPath);
 
+                stage = "storage";
                 await Task.WhenAll(storage.UploadAsync(windowsId, uploader, windowsPath, token),
                     storage.UploadAsync(linuxId, uploader, Path.Combine(folder, ArchiveName), token));
+                stage = "metadata";
                 await File.WriteAllTextAsync(marker, JsonSerializer.Serialize(state), token);
                 lock (published)
                 {
@@ -116,6 +129,15 @@ internal sealed partial class LauncherStore(IHttpClientFactory clients, IConfigu
                     Clear(folder);
                 }
             }
+        }
+        catch (Exception error) when (error is Confluent.Kafka.KafkaException or HttpRequestException or IOException or
+            UnauthorizedAccessException or InvalidDataException or JsonException ||
+            error is OperationCanceledException && !cancellation.IsCancellationRequested)
+        {
+            var failure = error is Confluent.Kafka.KafkaException kafka
+                ? kafka.Error.Code.ToString() : error.GetType().Name;
+            logger.LogWarning("Launcher import failed during {Stage} ({Failure}): {Reason}", stage, failure, error.Message);
+            throw new LauncherImportException(stage, failure, error);
         }
         finally { import.Release(); }
     }

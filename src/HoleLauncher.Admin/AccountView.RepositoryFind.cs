@@ -1,4 +1,7 @@
 using System.Collections.ObjectModel;
+using Avalonia;
+using Avalonia.Media;
+using Avalonia.VisualTree;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -14,10 +17,33 @@ public sealed partial class AccountView
     private List<(int Index, TreeViewItem? Node)> repositoryMatches = [];
     private int repositoryMatch = -1;
 
-    private Control CreateFlatRepositoryCard(RepositoryFile file) =>
-        new Border { Height = 36, Padding = new Avalonia.Thickness(8, 4), ClipToBounds = true,
-            BorderThickness = new Avalonia.Thickness(3, 0, 0, 0), BorderBrush = TypeBrush(file.Type),
-            Child = CreateCard(file.Card, compact: true) };
+    private static Control CreateFlatRepositoryCard()
+    {
+        const int iconSize = 18;
+        var icon = new Image { Width = iconSize, Height = iconSize, Stretch = Stretch.UniformToFill };
+        var title = new TextBlock { VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis, FontWeight = FontWeight.SemiBold };
+        var content = new Grid { ColumnDefinitions = new("Auto,*"), ColumnSpacing = 10, Children = { icon, title } };
+        Grid.SetColumn(title, 1);
+        var row = new Border { Height = 36, Padding = new Thickness(8, 4), ClipToBounds = true,
+            BorderThickness = new Thickness(3, 0, 0, 0), Child = content };
+        row.DataContextChanged += (_, _) => _ = UpdateAsync();
+        row.AttachedToVisualTree += (_, _) => _ = UpdateAsync();
+        return row;
+
+        async Task UpdateAsync()
+        {
+            var file = row.DataContext as RepositoryFile;
+            title.Text = file?.Card?.Title;
+            row.BorderBrush = file is null ? null : TypeBrush(file.Type);
+            icon.Source = null;
+            if (!row.IsAttachedToVisualTree() || file?.Card?.IconUrl is not { Length: > 0 } url)
+                return;
+            var bitmap = await GetRepositoryIconAsync(url, iconSize);
+            if (ReferenceEquals(row.DataContext, file))
+                icon.Source = bitmap;
+        }
+    }
 
     private void OnFlatRepositoryFileSelected(object? sender, SelectionChangedEventArgs e)
     {

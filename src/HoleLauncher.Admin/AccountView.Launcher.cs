@@ -41,6 +41,13 @@ public sealed partial class AccountView
         using var response = await Api.PutAsJsonAsync(LauncherEndpointPath, source, AdminJsonContext.Default.LauncherSource, cancellation);
         if (!response.IsSuccessStatusCode)
         {
+            if (response.StatusCode == System.Net.HttpStatusCode.BadGateway &&
+                response.Content.Headers.ContentType?.MediaType == "application/json" &&
+                await response.Content.ReadFromJsonAsync(AdminJsonContext.Default.LauncherImportFailure, cancellation) is { } error)
+            {
+                LauncherMessage.Text = T("launcher.import_error", T($"launcher.stage.{error.Stage}"), error.Failure);
+                return;
+            }
             LauncherMessage.Text = T(response.StatusCode == System.Net.HttpStatusCode.BadRequest ? "launcher.invalid" : "launcher.failed");
             return;
         }
@@ -61,7 +68,7 @@ public sealed partial class AccountView
             return;
         LauncherPanel.IsEnabled = false;
         LauncherMessage.Text = T("common.loading");
-        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(6));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(16));
         try { await action(deadline.Token); }
         catch (Exception error) when (error is HttpRequestException or JsonException or OperationCanceledException)
         {

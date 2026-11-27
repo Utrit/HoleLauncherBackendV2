@@ -53,7 +53,7 @@ internal static class Setup
         builder.Services.AddHttpClient("launcher", client =>
         {
             client.BaseAddress = new Uri(builder.Configuration["Launcher:Url"] ?? "http://launcher:8080/");
-            client.Timeout = TimeSpan.FromMinutes(6);
+            client.Timeout = TimeSpan.FromMinutes(16);
         });
         builder.Services.AddHttpClient("storage", client =>
         {

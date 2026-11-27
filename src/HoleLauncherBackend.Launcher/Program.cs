@@ -1,7 +1,6 @@
 using HoleLauncherBackend.Contracts;
 using HoleLauncherBackend.Launcher;
 using HoleLauncherBackend.Messaging;
-using Confluent.Kafka;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<LauncherStore>();
@@ -30,7 +29,11 @@ app.MapPut("/release", async (LauncherImport request, LauncherStore store, Cance
         return await store.ImportAsync(request.Repository, request.Uploader, cancellation) is { } release
             ? Results.Ok(release) : Results.BadRequest();
     }
-    catch (Exception error) when (error is KafkaException or HttpRequestException or IOException or InvalidDataException or System.Text.Json.JsonException ||
+    catch (LauncherImportException error)
+    {
+        return Results.Json(new LauncherImportFailure(error.Stage, error.Failure), statusCode: StatusCodes.Status502BadGateway);
+    }
+    catch (Exception error) when (error is IOException or System.Text.Json.JsonException ||
         error is OperationCanceledException && !cancellation.IsCancellationRequested)
     {
         app.Logger.LogWarning("Launcher import failed ({ErrorType})", error.GetType().Name);

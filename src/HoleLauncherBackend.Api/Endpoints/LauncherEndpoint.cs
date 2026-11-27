@@ -34,6 +34,11 @@ internal sealed class LauncherEndpoint(AccountManagementProxy accounts, IHttpCli
             using var response = source is null
                 ? await client.GetAsync("release", ct)
                 : await client.PutAsJsonAsync("release", new LauncherImport(source.Repository, account.AccountId), ct);
+            if (response.StatusCode == System.Net.HttpStatusCode.BadGateway &&
+                response.Content.Headers.ContentType?.MediaType == "application/json" &&
+                await response.Content.ReadFromJsonAsync<LauncherImportFailure>(ct) is { } failure)
+                return Results.Json(failure, statusCode: StatusCodes.Status502BadGateway);
+
             if (!response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NoContent)
                 return Results.StatusCode((int)response.StatusCode);
 

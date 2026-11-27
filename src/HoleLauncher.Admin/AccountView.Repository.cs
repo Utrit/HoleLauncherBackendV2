@@ -936,15 +936,18 @@ public sealed partial class AccountView
         finally { repositoryIconDownloads.Release(); }
     }
 
-    private static async Task SetRepositoryIconAsync(Image image, string url)
+    private static async Task SetRepositoryIconAsync(Image image, string url) =>
+        image.Source = await GetRepositoryIconAsync(url, (int)image.Width);
+
+    private static async Task<Bitmap?> GetRepositoryIconAsync(string url, int size)
     {
         var source = ModrinthAssets.IsCdnUrl(url)
             ? $"{RepositoryPath}/mod-icon?url={Uri.EscapeDataString(url)}" : url;
         if (!Uri.TryCreate(Api.BaseAddress, source, out var address) ||
             address.GetLeftPart(UriPartial.Authority) != Api.BaseAddress!.GetLeftPart(UriPartial.Authority))
-            return;
+            return null;
 
-        var key = (address, (int)image.Width);
+        var key = (address, size);
         if (!repositoryIcons.TryGetValue(key, out var download))
         {
             if (repositoryIcons.Count >= RepositoryIconCacheLimit)
@@ -960,13 +963,12 @@ public sealed partial class AccountView
             }
 
             if (repositoryIcons.Count >= RepositoryIconCacheLimit)
-                return;
+                return null;
             download = DownloadRepositoryIconAsync(address, key.Item2);
             repositoryIcons.Add(key, download);
         }
 
-        if (await download is { } bitmap)
-            image.Source = bitmap;
+        return await download;
     }
 
     private async Task RunRepositoryAsync(Func<Task> action)

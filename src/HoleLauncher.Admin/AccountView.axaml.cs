@@ -18,7 +18,7 @@ public sealed partial class AccountView : UserControl
     {
         InitializeComponent();
         RepositoryFiles.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<RepositoryFile>(
-            (file, _) => CreateFlatRepositoryCard(file));
+            (_, _) => CreateFlatRepositoryCard(), supportsRecycling: true);
         Program.RegisterRepositoryFind(
             () => RepositoryPanel.IsVisible && RepositoryBuildFilesTab.IsSelected, OpenRepositoryFind);
         AddHandler(PointerMovedEvent, OnRepositoryTreePointerMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -381,6 +381,7 @@ public sealed partial class AccountView : UserControl
 [JsonSerializable(typeof(HistoryCleanupResult))]
 [JsonSerializable(typeof(LauncherSource))]
 [JsonSerializable(typeof(LauncherRelease))]
+[JsonSerializable(typeof(LauncherImportFailure))]
 [JsonSerializable(typeof(RepositoryDraft))]
 [JsonSerializable(typeof(RepositoryBuildEvent))]
 [JsonSerializable(typeof(RepositoryBuildError))]
